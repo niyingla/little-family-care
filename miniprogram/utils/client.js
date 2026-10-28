@@ -58,6 +58,7 @@ async function loadPrivateImage(url) {
  * @throws {Error} 照片列表非法或任意照片未完整下载时不打开残缺预览。
  */
 async function loadPrivateImages(urls) {
+  // 先验证整组数量和地址，任一无效都不替换当前预览保护集合或开始部分下载。
   if (
     !Array.isArray(urls) ||
     urls.length < 1 ||
