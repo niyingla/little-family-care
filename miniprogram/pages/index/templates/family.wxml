@@ -1,0 +1,91 @@
+<template name="family">
+  <view class="family-hero">
+    <view class="eyebrow">A LITTLE TEAM, A LOT OF LOVE</view>
+    <view class="hero-title">我们一起，慢慢长大。</view>
+    <view class="muted">家里有 {{babies.length}} 位宝宝，{{members.length}} 位家人相伴。</view>
+  </view>
+  <view class="section-row">
+    <view class="section-title">家里的小可爱</view>
+    <button wx:if="{{owner}}" class="text-button" bindtap="openBaby">＋ 添加宝宝</button>
+  </view>
+  <view class="baby-grid">
+    <view wx:for="{{babies}}" wx:key="id" class="baby-profile {{item.color}}">
+      <image
+        wx:if="{{item.picture}}"
+        class="profile-avatar"
+        src="{{item.picture}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="profile-avatar default-avatar">{{item.initial}}</view>
+      <view class="baby-name">{{item.name}}</view>
+      <button wx:if="{{owner}}" class="baby-edit" data-id="{{item.id}}" bindtap="openBaby">
+        修改名字和头像
+      </button>
+    </view>
+  </view>
+  <view wx:if="{{!babies.length}}" class="empty">先给宝宝取个名字、选张头像吧 ♡</view>
+  <view class="section-row">
+    <view class="section-title">一起照顾的家人</view>
+    <button wx:if="{{owner}}" class="small-primary" bindtap="makeInvite" disabled="{{busy}}">
+      邀请家人
+    </button>
+  </view>
+  <view class="card">
+    <view wx:for="{{members}}" wx:key="id" class="member-row">
+      <view class="member-avatar">{{item.name}}</view>
+      <view class="member-name">{{item.name}}</view>
+      <text wx:if="{{index === 0}}" class="owner-label">管理员</text>
+      <button
+        wx:elif="{{owner}}"
+        class="text-button muted"
+        data-id="{{item.id}}"
+        bindtap="removeMember"
+      >
+        移除
+      </button>
+    </view>
+    <view class="muted footnote">
+      仅管理员能邀请和审核。邀请被转发，也需要管理员确认后才能访问。
+    </view>
+  </view>
+  <view wx:if="{{owner && requests.length}}" class="card">
+    <view class="section-title">等你确认的家人</view>
+    <view wx:for="{{requests}}" wx:key="id" class="request-row">
+      <text>{{item.name}}</text>
+      <view class="request-buttons">
+        <button class="text-button" data-id="{{item.id}}" data-approve="yes" bindtap="review">
+          同意
+        </button>
+        <button class="text-button muted" data-id="{{item.id}}" data-approve="no" bindtap="review">
+          拒绝
+        </button>
+      </view>
+    </view>
+  </view>
+  <view class="card">
+    <view class="section-title">家人怎么称呼你</view>
+    <view class="inline-field">
+      <input
+        class="field"
+        value="{{profileName}}"
+        maxlength="12"
+        data-field="profileName"
+        bindinput="input"
+      />
+      <button class="text-button" bindtap="saveProfile" disabled="{{busy}}">保存</button>
+    </view>
+  </view>
+  <view class="card reminder-card">
+    <view class="section-title">给我发微信提醒</view>
+    <view class="muted">
+      {{configured ? (subscribed ? '已记录你的授权，发送次数以微信可用额度为准。' :
+      '开启后，可在有授权额度时接收任务提醒。') : '尚未接入真实微信消息模板。'}}
+    </view>
+    <button class="soft" bindtap="subscribe">
+      {{configured ? '订阅任务提醒' : '查看提醒说明'}}
+    </button>
+    <view class="muted footnote">
+      自动提醒约每5分钟检查一次；家人也可手动提醒。一次性订阅不是永久授权，普通小程序无法保证无限次自动推送。
+    </view>
+  </view>
+</template>

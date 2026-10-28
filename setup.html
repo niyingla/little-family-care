@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>小小日常 · 开发与接入说明</title>
+    <style>
+      body {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 0 24px;
+        font:
+          16px/1.9 system-ui,
+          sans-serif;
+        color: #51463e;
+        background: #fcf8f1;
+      }
+      h1,
+      h2 {
+        color: #718366;
+      }
+      code,
+      pre {
+        background: #eee8dc;
+        border-radius: 8px;
+      }
+      code {
+        padding: 2px 7px;
+      }
+      pre {
+        padding: 20px;
+        overflow: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      td,
+      th {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #e4dacb;
+      }
+      a {
+        color: #718366;
+      }
+      .status {
+        background: #f3e5d2;
+        padding: 18px;
+        border-radius: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>小小日常 ♡</h1>
+    <p>
+      家人共享的宝宝照护待办。暂定首版
+      <strong>release-0.1.0</strong>，使用原生微信小程序和微信云开发。
+    </p>
+    <p class="status">
+      当前交付包含源码、可交互本地预览、云函数和自动化测试。正式使用需要开发者完成小程序注册、真实云环境部署、订阅消息联调、微信审核与发布。浏览器预览不等同于微信真机测试。
+    </p>
+    <h2>已经实现的业务</h2>
+    <ul>
+      <li>多宝宝姓名与独立头像；同一件事可为多个宝宝创建，分别打勾。</li>
+      <li>每天、固定间隔N天、每周指定星期；北京时间日历，不以完成时间移动周期。</li>
+      <li>当天完成与撤销，记录实际完成人和时间；通过版本号防止家人相互覆盖。</li>
+      <li>按日期回看已完成、未完成和执行流水；没打开过的日期也能重建应做任务。</li>
+      <li>任务编辑或停用从次日生效，历史使用旧版本。暂不支持补签、删除宝宝或删除家庭。</li>
+      <li>
+        只有预设管理员能初始化家庭；单次邀请24小时有效，申请后仍需管理员审批；成员移除后云端立即拒绝访问，前台下一次刷新清空资料。
+      </li>
+      <li>管理员管理宝宝和成员；家人可管理任务、共同打勾、提醒执行人。</li>
+      <li>自动提醒与手动提醒使用持久消息记录；自动任务按日期去重，手动提醒有10分钟冷却。</li>
+    </ul>
+    <h2>目录职责</h2>
+    <pre>
+miniprogram/
+  pages/index/
+    controllers/     时间线、任务、家庭的交互控制
+    templates/       各页面与表单WXML模板
+  utils/domain.js    周期、历史、权限与状态转换的唯一来源
+  utils/client.js    云端调用与明确标识的本地体验
+server/
+  service.cjs        邀请审批、业务事务、通知队列
+  cloud.cjs          云数据库与微信消息适配
+cloudfunctions/
+  family/            身份检查、家庭请求、私有头像上传入口
+  reminder/          独立定时扫描入口，拒绝小程序客户端调用
+tests/               日期、权限、并发、邀请与提醒的行为测试
+preview/             复用真实WXML和控制器的本地预览桥
+scripts/             共用规则复制、结构检查、预览服务</pre>
+    <p>
+      <code>server/domain.js</code> 和云函数的 <code>lib/</code> 由准备脚本生成，修改规则时只编辑
+      <code>miniprogram/utils/domain.js</code>；运行 <code>npm run prepare</code> 后再部署。
+    </p>
+    <h2>本地启动</h2>
+    <pre>
+npm install
+npm test
+npm run check
+npm run preview</pre>
+    <p>
+      打开 <a href="http://127.0.0.1:4173">http://127.0.0.1:4173</a>。示例“大宝 / 二宝 /
+      家人”仅保存在本机，不是真实家庭数据。预览只监听本机端口，未开放公网。
+    </p>
+    <h2>接入真实微信小程序</h2>
+    <ol>
+      <li>
+        由本人在微信公众平台注册个人小程序，完成必要实名、类目和备案。拿到真实AppID，微信开发者工具导入项目时使用自己的AppID；公开仓库只保留touristappid。
+      </li>
+      <li>
+        在本人账号下开通文档型数据库云开发环境，确认腾讯云账号和小程序绑定正确。费用以官方开通页面为准，项目不会自动购买资源。
+      </li>
+      <li>
+        复制 <code>miniprogram/config.local.example.js</code> 为
+        <code>config.local.js</code>，填入环境ID和真实模板ID。此文件已被Git忽略，不提交。
+      </li>
+      <li>
+        按
+        <code>cloud-settings.example.json</code>
+        创建7个集合，数据库及云存储客户端权限均设为禁止直读直写，仅通过云函数访问；不要把数据库改成所有人可读写。
+      </li>
+      <li>
+        先部署family云函数（云端安装依赖）。真机打开小程序，未加入用户只看到邀请页；点击复制自己的OpenID。将该值配置到两个云函数的
+        <code>OWNER_OPENID</code>，仅此身份能创建家庭。
+      </li>
+      <li>
+        配置真实订阅消息模板及字段，填写 <code>REMIND_TEMPLATE_ID</code>、<code>REMIND_FIELDS</code>
+        与
+        <code>MESSAGE_STAGE</code
+        >。试用设trial，开发版设developer，正式发布时改formal。模板字段必须与审核通过的服务场景一致。
+      </li>
+      <li>
+        运行prepare后部署reminder云函数及config中的定时触发器，约每5分钟检查到期任务。部署完成后应在控制台核对触发器确实生效。
+      </li>
+      <li>
+        以管理员创建家庭、设置两个宝宝、邀请家人；家人用各自微信接受邀请并等待管理员批准。各接收人需要主动订阅消息。
+      </li>
+      <li>
+        使用至少两个微信账号和两台设备验证同步、权限、头像、审批、订阅额度、定时及手动提醒，最后再提交微信审核与发布。
+      </li>
+    </ol>
+    <h2>消息与历史的边界</h2>
+    <p>
+      普通一次性订阅通常每次授权对应一条通知，不能承诺一次授权后永久自动发送。手动催办同样受接收人授权和模板限制；无授权时可由家人主动分享任务卡片。消息显示“微信接口已接收”不等于对方已读。未知结果不自动重试，避免重复催办；云函数执行中断可能留下“正在处理、结果待确认”，需要管理员核对日志。自动提醒按当日任务发送，不补发前几天的提醒。
+    </p>
+    <p>
+      头像存储为私有文件，仅通过已授权的家庭请求签发10分钟临时URL；成员被移除后不能获取新地址，但此前拿到的临时URL在到期前可能仍有效。相册/拍照接口需在微信后台隐私指引中按实际用途声明。真实环境与消息接口尚待联调。
+    </p>
+    <h2>上线前资料</h2>
+    <p>
+      小程序AppID、云开发环境ID、管理员OpenID、实际订阅模板与字段、名称图标简介、个人主体与备案状态、用户隐私指引及联系邮箱。实名资料在微信官方后台填写，密钥只放云端配置，不进入源码或GitHub。
+    </p>
+    <p>
+      参考：<a href="https://docs.cloudbase.net/recipes/add-cloud-function-wechat-miniprogram"
+        >小程序云函数</a
+      >
+      ·
+      <a href="https://docs.cloudbase.net/recipes/add-subscribe-message-cloud-function"
+        >微信订阅消息</a
+      >
+      · <a href="https://docs.cloudbase.net/database/transaction">数据库事务</a>
+    </p>
+  </body>
+</html>

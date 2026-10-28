@@ -1,0 +1,36 @@
+<template name="tasks">
+  <view class="section-row">
+    <view>
+      <view class="section-title">把小事安排好</view>
+      <view class="muted">设一次周期，每天自动排进清单。</view>
+    </view>
+    <button class="small-primary" bindtap="openTask">＋ 新建</button>
+  </view>
+  <view wx:for="{{taskList}}" wx:key="id" class="card plan-card">
+    <view class="plan-top">
+      <view class="task-title">{{item.title}}</view>
+      <text class="baby-tag">{{item.babyName}}</text>
+    </view>
+    <view class="plan-rule">
+      {{item.ruleLabel}} · {{item.reminderTime}} · {{item.assigneeName}}负责
+    </view>
+    <view class="muted">
+      从 {{item.startDate}} 开始
+      <text wx:if="{{item.scheduled}}">· 新设置明天生效</text>
+    </view>
+    <view class="plan-actions">
+      <button class="text-button" data-id="{{item.id}}" bindtap="openTask">编辑任务</button>
+      <button class="text-button muted" disabled="{{busy}}" data-id="{{item.id}}" bindtap="archive">
+        停止重复
+      </button>
+    </view>
+  </view>
+  <view wx:if="{{!taskList.length}}" class="empty">
+    <view class="empty-icon">✿</view>
+    <view>从一件小事开始吧</view>
+    <view class="muted">每天、隔一天，或每周指定几天。</view>
+  </view>
+  <view class="notice">
+    隔一天按开始日期固定计算，漏做不会改变下一次日期。同一任务可以为多个宝宝分别创建，各自打勾。
+  </view>
+</template>

@@ -1,0 +1,12 @@
+{
+  "pages": ["pages/index/index"],
+  "window": {
+    "navigationBarTitleText": "小小日常",
+    "navigationBarBackgroundColor": "#FCF8F1",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#FCF8F1",
+    "enablePullDownRefresh": true
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

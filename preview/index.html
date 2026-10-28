@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>小小日常 · 本地交互预览</title>
+    <style id="native-style"></style>
+    <style>
+      body {
+        margin: 0;
+        background: #f3eee5;
+      }
+      #app {
+        max-width: 430px;
+        margin: auto;
+        background: #fcf8f1;
+        min-height: 100vh;
+      }
+      #app * {
+        box-sizing: border-box;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        border: 0;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+      }
+      img {
+        object-fit: cover;
+      }
+      input {
+        outline: none;
+      }
+      .bottom-nav {
+        max-width: 430px;
+        left: 50% !important;
+        transform: translateX(-50%);
+        width: 100%;
+      }
+      .sheet {
+        max-width: 430px !important;
+      }
+      .sheet-body {
+        overflow-y: auto;
+      }
+      .baby-scroll {
+        overflow-x: auto;
+      }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 110px;
+        transform: translateX(-50%);
+        background: #54473eee;
+        color: white;
+        border-radius: 14px;
+        padding: 14px 22px;
+        font: 14px sans-serif;
+        z-index: 9999;
+        max-width: 330px;
+      }
+      .picker-input {
+        width: 100%;
+        background: #f6f2e9;
+        border: 1px solid #ece4d7;
+        border-radius: 10px;
+        padding: 12px;
+        color: #51463e;
+        font: inherit;
+      }
+      .preview-note {
+        font: 12px sans-serif;
+        text-align: center;
+        padding: 10px;
+        color: #9b8b75;
+        background: #efe6d7;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/preview-bundle.js"></script>
+    <script src="/preview/runtime.js"></script>
+  </body>
+</html>

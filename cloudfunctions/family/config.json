@@ -1,0 +1,1 @@
+{ "permissions": { "openapi": ["subscribeMessage.send"] }, "timeout": 30, "memorySize": 256 }

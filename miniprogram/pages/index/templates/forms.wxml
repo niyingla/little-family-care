@@ -1,0 +1,154 @@
+<template name="forms">
+  <view class="modal-backdrop" bindtap="closeModal">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-handle" />
+      <view class="sheet-heading">
+        <view class="section-title">
+          {{modal === 'task' ? (form.taskId ? '调整这件小事' : '添加一件小事') : modal === 'baby' ?
+          '宝宝的小档案' : '邀请家人一起照顾'}}
+        </view>
+        <button class="close-button" bindtap="closeModal">×</button>
+      </view>
+      <scroll-view class="sheet-body" scroll-y>
+        <block wx:if="{{modal === 'task'}}">
+          <view class="form-label">需要做什么</view>
+          <input
+            class="field"
+            placeholder="例如：整理外出用品"
+            maxlength="60"
+            value="{{form.title}}"
+            data-field="form.title"
+            bindinput="input"
+          />
+          <view class="form-label">
+            哪位宝宝的小事
+            <text class="muted">{{form.taskId ? '宝宝归属不变' : '可多选，分别打勾'}}</text>
+          </view>
+          <view class="choices">
+            <view
+              wx:for="{{taskBabies}}"
+              wx:key="id"
+              class="choice {{item.selected ? 'on' : ''}}"
+              data-id="{{item.id}}"
+              bindtap="chooseTaskBaby"
+            >
+              {{item.name}} {{item.selected ? '✓' : ''}}
+            </view>
+          </view>
+          <view class="form-label">重复周期</view>
+          <view class="choices">
+            <view
+              wx:for="{{frequencies}}"
+              wx:key="id"
+              class="choice {{form.frequency === item.id ? 'on' : ''}}"
+              data-id="{{item.id}}"
+              bindtap="chooseFrequency"
+            >
+              {{item.label}}
+            </view>
+          </view>
+          <view wx:if="{{form.frequency === 'interval'}}" class="interval-row">
+            <text>每</text>
+            <input
+              class="field interval-input"
+              type="number"
+              value="{{form.interval}}"
+              data-field="form.interval"
+              bindinput="input"
+            />
+            <text>天一次</text>
+            <text class="muted">2天一次就是隔一天</text>
+          </view>
+          <view wx:if="{{form.frequency === 'weekly'}}" class="week-choices">
+            <view
+              wx:for="{{week}}"
+              wx:key="n"
+              class="week-choice {{item.selected ? 'on' : ''}}"
+              data-n="{{item.n}}"
+              bindtap="chooseWeekday"
+            >
+              {{item.label}}
+            </view>
+          </view>
+          <view class="form-label">从哪天开始</view>
+          <picker
+            mode="date"
+            value="{{form.startDate}}"
+            bindchange="input"
+            data-field="form.startDate"
+          >
+            <view class="field picker-value">
+              {{form.startDate}}
+              <text>⌄</text>
+            </view>
+          </picker>
+          <view class="form-label">由谁负责</view>
+          <picker
+            range="{{taskMembers}}"
+            range-key="name"
+            value="{{memberIndex}}"
+            bindchange="chooseMember"
+          >
+            <view class="field picker-value">
+              {{taskMembers[memberIndex].name}}
+              <text>⌄</text>
+            </view>
+          </picker>
+          <view class="form-label">提醒时间</view>
+          <picker
+            mode="time"
+            value="{{form.reminderTime}}"
+            bindchange="input"
+            data-field="form.reminderTime"
+          >
+            <view class="field picker-value">
+              {{form.reminderTime}}
+              <text>⌄</text>
+            </view>
+          </picker>
+          <view class="notice">
+            {{form.taskId ? '修改从明天起生效，今天与历史记录不变。' :
+            '按北京时间安排。过去的开始日期会从今天算起，不补写历史。'}} 微信提醒需执行人订阅授权。
+          </view>
+          <button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="saveTask">
+            {{form.taskId ? '保存调整' : '把小事记下来'}}
+          </button>
+        </block>
+        <block wx:elif="{{modal === 'baby'}}">
+          <view class="avatar-upload" bindtap="chooseAvatar">
+            <image
+              wx:if="{{babyForm.picture}}"
+              src="{{babyForm.picture}}"
+              class="upload-picture"
+              mode="aspectFill"
+            />
+            <view wx:else class="upload-placeholder">♡</view>
+            <view class="muted">点击选头像 · 相册或拍照</view>
+          </view>
+          <view class="form-label">宝宝的名字或昵称</view>
+          <input
+            class="field"
+            placeholder="家里怎么叫TA呢？"
+            maxlength="12"
+            value="{{babyForm.name}}"
+            data-field="babyForm.name"
+            bindinput="input"
+          />
+          <view class="notice">名字和头像仅对已加入的家庭成员可见。支持1MB以内JPG或PNG图片。</view>
+          <button class="primary" bindtap="saveBaby" disabled="{{busy}}" loading="{{busy}}">
+            保存宝宝资料
+          </button>
+        </block>
+        <block wx:else>
+          <view class="invite-art">♡</view>
+          <view class="muted">
+            邀请仅供一人申请，24小时有效。对方申请后，还需要你在家庭页确认。
+          </view>
+          <view class="invite-code">{{inviteToken}}</view>
+          <button class="primary" open-type="share">发邀请给家人</button>
+          <button class="soft" bindtap="copyInvite">复制邀请码</button>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+</template>

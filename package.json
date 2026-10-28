@@ -1,0 +1,17 @@
+{
+  "name": "little-family-care",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prepare": "node scripts/prepare.cjs",
+    "pretest": "node scripts/prepare.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node scripts/check.cjs",
+    "preview": "node scripts/preview.cjs",
+    "format": "prettier --write \"miniprogram/**/*.{js,json,wxml,wxss}\" \"server/*.cjs\" \"cloudfunctions/**/*.{js,json,cjs}\" \"scripts/*.cjs\" \"tests/*.cjs\" \"preview/*.{html,js}\" \"*.{json,html}\"",
+    "format:check": "prettier --check \"miniprogram/**/*.{js,json,wxml,wxss}\" \"server/*.cjs\" \"scripts/*.cjs\" \"tests/*.cjs\" \"preview/*.{html,js}\" \"*.{json,html}\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

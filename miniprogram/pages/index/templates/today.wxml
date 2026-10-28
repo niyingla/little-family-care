@@ -1,0 +1,143 @@
+<template name="timeline">
+  <view wx:if="{{view === 'today'}}" class="hero">
+    <view class="hero-copy">
+      <view class="small-label">TODAY'S LITTLE THINGS</view>
+      <view class="hero-title">慢慢来，一件一件做。</view>
+      <view class="hero-sub">
+        {{total ? '每一个小勾，都是对宝宝的爱。' : '今天的小事，和家人一起安排。'}}
+      </view>
+      <view class="progress-label">
+        <text>已完成 {{doneCount}} / {{total}} 件</text>
+        <text>{{progress}}%</text>
+      </view>
+      <view class="progress-track">
+        <view class="progress-value" style="width:{{progress}}%" />
+      </view>
+    </view>
+    <view class="hero-art">
+      <view class="art-sun">☀</view>
+      <view class="art-arch"><text>♡</text></view>
+      <view class="art-star">✦</view>
+    </view>
+  </view>
+  <view wx:else class="history-header">
+    <view class="section-title">翻翻成长的小日常</view>
+    <view class="muted">完成的、漏掉的，都如实留下。</view>
+    <view class="date-control">
+      <button class="date-arrow" data-step="-1" bindtap="changeDay">‹</button>
+      <picker
+        mode="date"
+        value="{{date}}"
+        start="{{createdDate}}"
+        end="{{today}}"
+        bindchange="changeDate"
+      >
+        <view class="date-label">
+          {{date}}
+          <text>⌄</text>
+        </view>
+      </picker>
+      <button class="date-arrow" data-step="1" bindtap="changeDay" disabled="{{date === today}}">
+        ›
+      </button>
+    </view>
+  </view>
+  <view class="section-row">
+    <view class="section-title">
+      {{view === 'today' ? '今天的小事' : '当天执行情况'}}
+      <text class="count">{{total}}</text>
+    </view>
+    <text wx:if="{{view === 'today'}}" class="date-text">{{date}}</text>
+    <text wx:else class="date-text">{{doneCount}} 件已完成</text>
+  </view>
+  <view class="filters">
+    <text class="filter {{filter === 'all' ? 'chosen' : ''}}" data-id="all" bindtap="selectFilter">
+      全部
+    </text>
+    <text
+      class="filter {{filter === 'todo' ? 'chosen' : ''}}"
+      data-id="todo"
+      bindtap="selectFilter"
+    >
+      {{view === 'history' && date !== today ? '未完成' : '待完成'}}
+    </text>
+    <text
+      class="filter {{filter === 'done' ? 'chosen' : ''}}"
+      data-id="done"
+      bindtap="selectFilter"
+    >
+      已完成
+    </text>
+  </view>
+  <view wx:for="{{rows}}" wx:key="id" class="task-card {{item.done ? 'completed' : ''}}">
+    <view class="task-main">
+      <button
+        class="check-circle {{item.done ? 'checked' : ''}}"
+        aria-label="{{item.done ? '撤销完成' : '标记完成'}}"
+        disabled="{{busy || view === 'history'}}"
+        data-id="{{item.id}}"
+        bindtap="toggle"
+      >
+        {{item.done ? '✓' : ''}}
+      </button>
+      <view class="task-body">
+        <view class="task-title">{{item.title}}</view>
+        <view class="task-meta">
+          <image
+            wx:if="{{item.picture}}"
+            class="tiny-avatar"
+            src="{{item.picture}}"
+            mode="aspectFill"
+          />
+          <text class="baby-tag {{item.color}}">{{item.babyName}}</text>
+          <text>{{item.ruleLabel}}</text>
+          <text>· {{item.reminderTime}}</text>
+        </view>
+        <view class="assignment">
+          {{item.done ? item.completedByName + ' · ' + item.time + ' 完成' : item.assigneeName +
+          (item.mine ? '（我）' : '') + ' 负责'}}
+        </view>
+      </view>
+    </view>
+    <view wx:if="{{!item.done && view === 'today'}}" class="task-actions">
+      <button
+        class="nudge"
+        data-id="{{item.id}}"
+        bindtap="nudge"
+        disabled="{{busy || !item.assigneeActive}}"
+      >
+        ♡ 提醒一下
+      </button>
+      <button class="share-button" open-type="share" data-id="{{item.id}}">分享给家人 ↗</button>
+    </view>
+  </view>
+  <view wx:if="{{!rows.length}}" class="empty">
+    <view class="empty-icon">☁</view>
+    <view>{{total ? '这个分类里暂时没有小事' : '这一天还没有安排小事'}}</view>
+    <view class="muted">
+      {{view === 'today' ? '留一点从容，给宝宝，也给自己。' : '新建任务不会补写创建之前的历史。'}}
+    </view>
+  </view>
+  <button wx:if="{{view === 'today'}}" class="add-task" bindtap="openTask">＋ 添加一件小事</button>
+  <view wx:if="{{view === 'history'}}" class="history-footnote">
+    历史仅供查看。任务修改或停用从次日生效，过去的记录会保留。
+  </view>
+  <view wx:if="{{events.length}}" class="section-row">
+    <view class="section-title">{{view === 'today' ? '家人的小足迹' : '执行流水'}}</view>
+  </view>
+  <view wx:for="{{events}}" wx:key="id" class="event">
+    <view class="event-dot" />
+    <view class="event-body">
+      <view>{{item.actorName}}{{item.label}}「{{item.title}}」</view>
+      <view class="muted">{{item.babyName}} · {{item.time}}</view>
+    </view>
+  </view>
+  <view wx:if="{{messages.length}}" class="card message-card">
+    <view class="section-title">微信通知状态</view>
+    <view wx:for="{{messages}}" wx:key="id" class="message-line">
+      <text>{{item.title}}</text>
+      <text class="muted">{{item.label}}</text>
+    </view>
+    <view class="muted footnote">接口接收成功不等于对方已读；没有授权时可手动分享任务卡片。</view>
+  </view>
+</template>

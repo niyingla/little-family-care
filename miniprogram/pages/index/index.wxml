@@ -1,0 +1,142 @@
+<import src="templates/today.wxml" />
+<import src="templates/tasks.wxml" />
+<import src="templates/family.wxml" />
+<import src="templates/forms.wxml" />
+<view class="page">
+  <view wx:if="{{!ready}}" class="loading">正在打开小小日常…</view>
+  <block wx:elif="{{gate}}">
+    <view class="welcome-art">
+      <view class="sun">☀</view>
+      <view class="little-house">♡</view>
+      <view class="spark s1">✦</view>
+      <view class="spark s2">✧</view>
+    </view>
+    <view class="eyebrow">LITTLE MOMENTS, TOGETHER</view>
+    <view class="welcome-title">小小日常</view>
+    <view class="welcome-sub">
+      <view>把照顾宝宝的小事，</view>
+      <view>一起记在心上。</view>
+    </view>
+    <view class="card gate-card">
+      <view class="section-title">欢迎回家 ♡</view>
+      <view class="muted">只对你邀请并确认的家人开放，安心记录每一天。</view>
+      <block wx:if="{{cloudAvailable}}">
+        <input
+          class="field"
+          placeholder="你在家中的称呼，如：妈妈"
+          maxlength="12"
+          value="{{joinName}}"
+          data-field="joinName"
+          bindinput="input"
+        />
+        <block wx:if="{{bootstrap.canCreate}}">
+          <button class="primary" loading="{{busy}}" bindtap="createFamily">创建我的家庭</button>
+        </block>
+        <block wx:else>
+          <input
+            class="field code"
+            placeholder="粘贴管理员给你的邀请码"
+            value="{{token}}"
+            maxlength="32"
+            data-field="token"
+            bindinput="input"
+          />
+          <button class="primary" loading="{{busy}}" bindtap="joinFamily">申请加入家庭</button>
+          <view wx:if="{{bootstrap.requestStatus === 'pending'}}" class="notice">
+            申请已提交，等待管理员确认。下拉可刷新。
+          </view>
+          <view wx:if="{{bootstrap.requestStatus === 'rejected'}}" class="notice">
+            申请暂未通过，请联系家庭管理员。
+          </view>
+        </block>
+        <view wx:if="{{!bootstrap.ownerConfigured}}" class="notice">
+          管理员尚未初始化。请在云函数配置 OWNER_OPENID 后再创建家庭。
+        </view>
+        <button wx:if="{{!bootstrap.ownerConfigured}}" class="text-button" bindtap="copyIdentity">
+          复制我自己的 OpenID，供管理员初始化
+        </button>
+      </block>
+      <view wx:else class="notice">尚未连接你的微信云开发环境。可以先体验界面与任务功能。</view>
+      <button class="soft" bindtap="startDemo">先体验一下</button>
+    </view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view class="footer-note">小小的事，有家人一起就很好。</view>
+  </block>
+  <block wx:else>
+    <view wx:if="{{demo}}" class="demo-banner">
+      <text>本地体验 · 示例家庭 · 不发送微信通知</text>
+      <text class="demo-exit" bindtap="leaveDemo">退出</text>
+    </view>
+    <view class="heading">
+      <view>
+        <view class="eyebrow">OUR LITTLE FAMILY</view>
+        <view class="brand">
+          小小日常
+          <text class="brand-flower">✿</text>
+        </view>
+      </view>
+      <view class="family-badge" bindtap="switchTab" data-id="family">♡ 一起照顾</view>
+    </view>
+    <view wx:if="{{error}}" class="error">
+      {{error}}
+      <text bindtap="refresh">点击重试</text>
+    </view>
+    <scroll-view wx:if="{{view !== 'family'}}" scroll-x class="baby-scroll">
+      <view class="baby-pills">
+        <view
+          class="baby-pill {{selectedBaby === 'all' ? 'selected' : ''}}"
+          data-id="all"
+          bindtap="selectBaby"
+        >
+          <view class="mini-avatar all-avatar">♡</view>
+          <text>全部宝宝</text>
+        </view>
+        <view
+          wx:for="{{babies}}"
+          wx:key="id"
+          class="baby-pill {{selectedBaby === item.id ? 'selected' : ''}}"
+          data-id="{{item.id}}"
+          bindtap="selectBaby"
+        >
+          <image
+            wx:if="{{item.picture}}"
+            class="mini-avatar"
+            src="{{item.picture}}"
+            mode="aspectFill"
+          />
+          <view wx:else class="mini-avatar {{item.color}}">{{item.initial}}</view>
+          <text>{{item.name}}</text>
+        </view>
+      </view>
+    </scroll-view>
+    <template
+      wx:if="{{view === 'today' || view === 'history'}}"
+      is="timeline"
+      data="{{view,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages}}"
+    />
+    <template wx:if="{{view === 'tasks'}}" is="tasks" data="{{taskList,busy}}" />
+    <template
+      wx:if="{{view === 'family'}}"
+      is="family"
+      data="{{babies,members,owner,requests,profileName,configured,subscribed,demo,busy}}"
+    />
+    <view class="footer-note">一起照顾，也记得照顾自己 ♡</view>
+    <view class="bottom-nav">
+      <view
+        wx:for="{{tabs}}"
+        wx:key="id"
+        class="nav-item {{view === item.id ? 'active' : ''}}"
+        data-id="{{item.id}}"
+        bindtap="switchTab"
+      >
+        <view class="nav-icon">{{item.icon}}</view>
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+  </block>
+  <template
+    wx:if="{{modal}}"
+    is="forms"
+    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,busy,inviteToken}}"
+  />
+</view>

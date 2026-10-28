@@ -1,0 +1,10 @@
+{
+  "description": "小小日常：家人共享的宝宝照护待办",
+  "miniprogramRoot": "miniprogram/",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "little-family-care",
+  "setting": { "es6": true, "enhance": true, "minified": true, "urlCheck": true },
+  "libVersion": "3.7.0"
+}

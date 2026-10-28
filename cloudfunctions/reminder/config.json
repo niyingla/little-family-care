@@ -1,0 +1,6 @@
+{
+  "permissions": { "openapi": ["subscribeMessage.send"] },
+  "triggers": [{ "name": "care-every-five-minutes", "type": "timer", "config": "0 */5 * * * * *" }],
+  "timeout": 60,
+  "memorySize": 256
+}
