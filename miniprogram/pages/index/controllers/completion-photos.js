@@ -1,5 +1,6 @@
 // 完成照片是可选留档；此模块只负责选图、上传和预览，不修改事项状态。
 const api = require('../../../utils/client');
+const { MAX_IMAGE_BYTES } = require('../../../utils/media-policy');
 
 module.exports = {
   /**
@@ -24,7 +25,7 @@ module.exports = {
       const file = response.tempFiles && response.tempFiles[0];
       // 系统未返回所选文件时视为未选图，不能沿用上一次选择的照片。
       if (!file) return null;
-      if (file.size > 1024 * 1024) throw new Error('请选择1MB以内的照片，或先裁剪压缩');
+      if (file.size > MAX_IMAGE_BYTES) throw new Error('请选择10MB以内的照片，或先裁剪压缩');
       // 只读取用户明确选中的临时路径，不遍历相册或上传其他本地文件。
       const base64 = wx.getFileSystemManager().readFileSync(file.tempFilePath, 'base64');
       // 日期保留用户开始选图时的页面值；跨日后由后端拒绝，不能静默归到次日。

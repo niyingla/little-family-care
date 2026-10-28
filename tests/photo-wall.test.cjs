@@ -1,10 +1,98 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
+const { MAX_IMAGE_BYTES } = require('../miniprogram/utils/media-policy');
 const { createPhotoWall, addCompletion } = require('../server/photo-wall.cjs');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const uid = (value) => hash(value).slice(0, 32);
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]).toString('base64');
+
+function wallController(files) {
+  const filename = path.resolve(__dirname, '../miniprogram/pages/index/controllers/photo-wall.js');
+  const localRequire = createRequire(filename),
+    module = { exports: {} };
+  const calls = [],
+    selections = [],
+    toasts = [];
+  let reads = 0;
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+    module,
+    require: (name) =>
+      name.endsWith('/client')
+        ? {
+            call: async (action, data) => {
+              calls.push({ action, data });
+              return { photoId: `photo:${calls.length}` };
+            },
+          }
+        : localRequire(name),
+    wx: {
+      chooseMedia: async (options) => {
+        selections.push(options);
+        return { tempFiles: files };
+      },
+      getFileSystemManager: () => ({
+        readFileSync: () => {
+          reads++;
+          return png;
+        },
+      }),
+      showToast: (options) => toasts.push(options.title),
+    },
+  });
+  const page = {
+    data: {
+      busy: false,
+      demo: false,
+      wallDraft: { babyId: 'family', text: '保留草稿', photos: [] },
+    },
+    setData(value) {
+      Object.assign(this.data, value);
+    },
+  };
+  return { controller: module.exports, page, calls, selections, toasts, reads: () => reads };
+}
+
+test('照片墙选择允许10MiB图片且每篇仍最多9张，不因放大单图限制增加张数', async () => {
+  const files = Array.from({ length: 9 }, (_, index) => ({
+    size: index ? 1024 * 1024 + 1 : MAX_IMAGE_BYTES,
+    tempFilePath: `/selected-${index}.png`,
+  }));
+  const f = wallController(files);
+  await f.controller.chooseWallPhotos.call(f.page);
+  assert.equal(f.calls.length, 9);
+  assert.equal(f.reads(), 9);
+  assert.equal(f.selections[0].count, 9);
+  assert.equal(f.page.data.wallDraft.photos.length, 9);
+  assert.equal(f.page.data.wallDraft.text, '保留草稿');
+  for (const call of f.calls) {
+    assert.equal(call.action, 'uploadWallPhoto');
+    assert.equal(call.data.scope, 'family');
+    assert.equal(call.data.babyId, '');
+  }
+  await f.controller.chooseWallPhotos.call(f.page);
+  assert.equal(f.selections.length, 1);
+  assert.deepEqual(f.toasts, []);
+  assert.equal(f.page.data.busy, false);
+});
+
+test('照片墙整批有一张超10MiB时在读取上传任何照片之前拒绝，保留原草稿', async () => {
+  const f = wallController([
+    { size: 9, tempFilePath: '/small.png' },
+    { size: MAX_IMAGE_BYTES + 1, tempFilePath: '/large.png' },
+  ]);
+  await f.controller.chooseWallPhotos.call(f.page);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.reads(), 0);
+  assert.equal(f.page.data.wallDraft.photos.length, 0);
+  assert.equal(f.page.data.wallDraft.text, '保留草稿');
+  assert.match(f.toasts[0], /10MB/);
+  assert.equal(f.page.data.busy, false);
+});
 
 function fixture() {
   const store = new Map();
@@ -253,11 +341,11 @@ test('并发发布不丢feed节点，上传校验真实字节并拒绝错误类�
     png.slice(0, -1),
   ])
     await assert.rejects(f.wall.uploadWallPhoto('dad', { babyId: 'baby-a', base64 }), /照片/);
-  const large = Buffer.alloc(1024 * 1024 + 1, 0);
+  const large = Buffer.alloc(10 * 1024 * 1024 + 1, 0);
   Buffer.from(png, 'base64').copy(large);
   await assert.rejects(
     f.wall.uploadWallPhoto('dad', { babyId: 'baby-a', base64: large.toString('base64') }),
-    /1MB/
+    /10MB/
   );
   const uploaded = await f.wall.uploadWallPhoto('dad', { babyId: 'baby-a', base64: png });
   const posts = await Promise.all(

@@ -6,6 +6,10 @@ const { createService } = require('../server/service.cjs');
 const { createWechat } = require('./wechat.cjs');
 const { createActivityRecorder } = require('../server/activity.cjs');
 const { createPhotoWall } = require('../server/photo-wall.cjs');
+const { createImageUpload } = require('./image-upload.cjs');
+const { MAX_IMAGE_BYTES, MAX_BASE64_LENGTH } = require('../server/media-policy');
+const RATE_LIMITS = { ip: 12000, login: 60, business: 240, media: 3000 };
+const MAX_RATE_STATES = 1000;
 const d = require('../server/domain');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const randomId = () => crypto.randomBytes(16).toString('hex');
@@ -30,7 +34,7 @@ function diagnosticCodes(error) {
 
 /**
  * 读取受限大小的JSON请求，避免图片上传把整个进程内存占满。
- * @param {object} request Node请求流，正文应为JSON对象且不超过1500000字节。
+ * @param {object} request Node请求流，正文受10MB图片编码长度与少量定位参数空间限制。
  * @returns {Promise<object>} 解码后的请求数据，空正文按空对象处理。
  * @throws {Error} 请求过大返回413，JSON损坏时返回业务格式错误。
  */
@@ -40,7 +44,7 @@ async function readBody(request) {
   for await (const chunk of request) {
     // 按流分段累计实际字节，不能依赖调用方声明的Content-Length。
     bytes += chunk.length;
-    if (bytes > 1500000) fail('请求内容过大', 413);
+    if (bytes > MAX_BASE64_LENGTH + 8192) fail('请求内容过大', 413);
     chunks.push(chunk);
   }
   try {
@@ -112,25 +116,51 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
     'listPhotoPosts',
     'deletePhotoPost',
   ]);
+  // 云托管单请求体受限时分片先落私有仓库，完成后仍复用原入口的图片与业务校验。
+  const imageUpload = createImageUpload(repo, {
+    readMember: service.readMember,
+    hash,
+    randomId,
+    now: () => new Date().toISOString(),
+    upload: (action, openid, data) => {
+      // 原动作先经会话白名单限制，头像仍走管理员专属的原入口。
+      if (action === 'uploadAvatar') return uploadAvatar(openid, data);
+      // 完成照的当天待办与上传者绑定不因分片传输而放宽。
+      if (action === 'uploadCompletionPhoto') return uploadCompletionPhoto(openid, data);
+      // 剩余唯一合法动作是照片墙，家庭/宝宝归属与图片内容仍需原入口确认。
+      return photoWall.uploadWallPhoto(openid, data);
+    },
+  });
+  // 分片只缩小正文，不绕过原HTTP会话鉴权或开放匿名图片写入。
+  const chunkActions = new Set(['initImageUpload', 'appendImageChunk', 'finishImageUpload']);
   // 频率状态仅在本进程使用，不与家庭成员、业务执行记录混存。
   const counters = new Map();
   /**
-   * 限制同一来源的短时请求数量，避免上传和图片接口被匿名连续扫描。
+   * 分层限制匿名来源、登录和已认证成员，分片上传不挤占普通业务额度。
    * @param {object} request 含socket.remoteAddress的服务器请求。
+   * @param {string} bucket 内部固定ip/login/business/media桶，不接受请求体自选。
+   * @param {string} memberId 仅身份校验成功后传入的哈希成员ID，匿名请求必须为空。
    * @returns {void} 未超限时继续处理，不产生业务数据写入。
-   * @throws {Error} 单来源一分钟超过240次请求时返回429。
+   * @throws {Error} 对应分钟窗口超限或1000个活动限流状态已满时返回429。
    */
-  function checkRate(request) {
-    const address = request.socket.remoteAddress || 'unknown';
-    const key = address;
+  function checkRate(request, bucket = 'ip', memberId = '') {
+    // 匿名只按真实socket来源建桶，不能用伪造Bearer或转发头制造无限新状态。
+    const address = memberId || request.socket.remoteAddress || 'unknown';
+    // 桶名固定且彼此隔离，大图分片次数不会挤占同一成员的普通事项额度。
+    const key = `${bucket}:${address}`;
     const time = Date.now(),
       entry = counters.get(key);
-    // 时间窗到期后重置额度，不让历史计数永久阻断合法家人。
-    if (!entry || entry.until < time) counters.set(key, { until: time + 60000, count: 1 });
-    else if (++entry.count > 240) fail('请求过于频繁，请稍后再试', 429);
-    // 限制匿名来源状态数量，避免外部扫描令内存持续增长。
-    if (counters.size > 1000)
-      for (const [id, record] of counters) if (record.until < time) counters.delete(id);
+    // 有效桶只递增而不续期或重置窗口，连续请求不能绕过分钟频率边界。
+    if (entry && entry.until > time) {
+      if (++entry.count > RATE_LIMITS[bucket]) fail('请求过于频繁，请稍后再试', 429);
+      return;
+    }
+    // 新桶到来先清理过期状态；全为活动桶时拒绝新增，Map始终不超过1000项。
+    if (counters.size >= MAX_RATE_STATES)
+      for (const [id, record] of counters) if (record.until <= time) counters.delete(id);
+    if (!counters.has(key) && counters.size >= MAX_RATE_STATES)
+      fail('请求来源过多，请稍后再试', 429);
+    counters.set(key, { until: time + 60000, count: 1 });
   }
   /**
    * 从服务器会话恢复真实微信身份，不采信请求正文中的成员标记。
@@ -150,7 +180,7 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
   /**
    * 仅允许当前管理员向私有图片仓库上传宝宝头像。
    * @param {string} openid 当前会话提供的可信微信身份。
-   * @param {object} data 原始base64编码的JPG或PNG头像，解码后最多1MB。
+   * @param {object} data 原始base64编码的JPG或PNG头像，解码后最多10MB。
    * @returns {Promise<object>} 可供保存宝宝资料引用的随机fileID及上传说明。
    * @throws {Error} 非管理员、图片过大、格式不支持或存储失败时拒绝上传。
    */
@@ -160,13 +190,14 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
     if (home.ownerId !== hash(openid).slice(0, 32)) fail('仅管理员可修改宝宝头像', 403);
     const base64 = String(data.base64 || '');
     // 先限制编码字符和长度，避免解码任意正文或超大分配。
-    if (base64.length > 1400000 || !/^[a-zA-Z0-9+/=]+$/.test(base64))
-      fail('请上传1MB以内JPG或PNG头像');
+    if (base64.length > MAX_BASE64_LENGTH || !/^[a-zA-Z0-9+/=]+$/.test(base64))
+      fail('请上传10MB以内JPG或PNG头像');
     const buffer = Buffer.from(base64, 'base64');
     // 文件头和解码后大小由后端验证，不能采信客户端扩展名与size。
     const jpeg = buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
     const png = buffer.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    if ((!jpeg && !png) || buffer.length > 1024 * 1024) fail('请上传1MB以内JPG或PNG头像');
+    if ((!jpeg && !png) || buffer.length > MAX_IMAGE_BYTES || buffer.toString('base64') !== base64)
+      fail('请上传10MB以内JPG或PNG头像');
     const filename = `${randomId()}.${jpeg ? 'jpg' : 'png'}`,
       fileID = `avatar:${filename}`;
     // 文件使用随机名；只有登记为当前家庭所有后才可在宝宝资料中引用。
@@ -178,7 +209,7 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
   /**
    * 保存当前成员为当天待完成事项主动选择的照片，不修改完成状态。
    * @param {string} openid 已通过服务器会话验证的微信身份。
-   * @param {object} data taskId、北京时间date与不含前缀的base64图片，最多1MB。
+   * @param {object} data taskId、北京时间date与不含前缀的base64图片，最多10MB。
    * @returns {Promise<object>} 随机photoId，只有后续完成事务可以关联到执行记录。
    * @throws {Error} 成员无权、任务已完成、日期不合法或图片格式不符合限制。
    */
@@ -196,16 +227,16 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
     // 先限制编码长度再分配Buffer，避免大请求造成额外内存占用。
     if (
       typeof encoded !== 'string' ||
-      encoded.length > 1400000 ||
+      encoded.length > MAX_BASE64_LENGTH ||
       !/^[a-zA-Z0-9+/=]+$/.test(encoded)
     )
-      fail('请上传1MB以内JPG或PNG照片');
+      fail('请上传10MB以内JPG或PNG照片');
     const buffer = Buffer.from(encoded, 'base64');
     const jpeg = buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
     const png = buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     // 依据文件头和实际解码字节数判断，不信任客户端扩展名及文件大小。
-    if ((!jpeg && !png) || buffer.length > 1024 * 1024 || buffer.toString('base64') !== encoded)
-      fail('请上传1MB以内JPG或PNG照片');
+    if ((!jpeg && !png) || buffer.length > MAX_IMAGE_BYTES || buffer.toString('base64') !== encoded)
+      fail('请上传10MB以内JPG或PNG照片');
     // 文件名完全由服务端生成，不沿用相册名称、路径或可猜测的任务编号。
     const filename = `${randomId()}.${jpeg ? 'jpg' : 'png'}`;
     const photoId = `photo:${filename}`;
@@ -357,7 +388,7 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
       end = data.length - 1;
     const range = request.headers.range;
     if (range) {
-      // 云托管响应有1000KiB上限；客户端按512KiB分段读取1MB原始头像。
+      // 云托管响应有1000KiB上限；客户端按512KiB分段读取最多10MB私有图片。
       const match = /^bytes=(\d+)-(\d+)$/.exec(range);
       // 仅支持单一显式范围，不接受多段和后缀语法，降低错误缓存及拼接风险。
       if (!match) fail('图片读取范围不正确', 416);
@@ -444,6 +475,8 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
       if (url.pathname === '/api/login') {
         // 登录是唯一无需已有会话的写入口，只接受微信短时code换取身份。
         operation = 'login';
+        // 微信换码另设低频IP窗口，不能用大图分片额度放大匿名登录消耗。
+        checkRate(request, 'login');
         const data = await readBody(request);
         // 先约束类型和长度，防止异常输入被带到微信开放接口。
         if (typeof data.code !== 'string' || data.code.length < 1 || data.code.length > 256)
@@ -478,6 +511,11 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
         payload = await readBody(request);
       const action = payload.action || '',
         data = payload.data || {};
+      // 只有identity成功后才建立成员桶，任意无效token都不能扩张成员限流Map。
+      const mediaAction =
+        chunkActions.has(action) ||
+        ['uploadAvatar', 'uploadCompletionPhoto', 'uploadWallPhoto'].includes(action);
+      checkRate(request, mediaAction ? 'media' : 'business', hash(openid).slice(0, 32));
       // 日志动作限制为短字母标识，未知输入不能把用户正文写进运维日志。
       operation = /^[a-zA-Z]{1,24}$/.test(action) ? action : 'unknown';
       // 文件入口只负责上传和签名，完成状态仍走事务化业务服务。
@@ -490,7 +528,9 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
               ? await completionPhoto(openid, data)
               : wallActions.has(action)
                 ? await photoWall.call(openid, action, data)
-                : await service.call(openid, action, data);
+                : chunkActions.has(action)
+                  ? await imageUpload.call(openid, action, data)
+                  : await service.call(openid, action, data);
       if (action === 'snapshot') {
         // 先由service验证当前家庭成员，再为返回给该成员的图片补短链。
         result.home.babies = result.home.babies.map((b) => ({

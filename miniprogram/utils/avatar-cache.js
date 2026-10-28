@@ -1,3 +1,5 @@
+const { MAX_IMAGE_BYTES } = require('./media-policy');
+
 /**
  * 将私有头像分段下载到小程序沙盒；避免公开图片域名及云托管响应大小限制。
  * @param {Function} request 统一传输入口，支持GET、Range及ArrayBuffer响应。
@@ -15,9 +17,8 @@ function createAvatarCache(request, platform) {
   const prefix = 'care-private-avatar-';
   // 下载中条目也占预算，不能通过删除进行中的Promise假装释放容量。
   const capacity = 20;
-  // 单张头像最多两段，兼顾服务端大小限制与云托管单次响应限制。
-  const maximum = 1024 * 1024,
-    partSize = 512 * 1024;
+  // 图片大小与上传共享上限；每次回包独立限制为512KiB，不能一次请求全部剩余图片。
+  const partSize = 512 * 1024;
   /**
    * 首次使用时清理上一次页面会话留下的私有头像缓存。
    * @param {object} fs 微信文件系统管理器，只操作本应用沙盒目录。
@@ -58,6 +59,9 @@ function createAvatarCache(request, platform) {
     const headers = response.header || {};
     const key = Object.keys(headers).find((name) => name.toLowerCase() === 'content-range');
     const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(headers[key] || '');
+    // 只接受有限正整数总长，不能用异常范围诱导分配无界缓冲区。
+    const total = range && Number(range[3]),
+      last = range && Number(range[2]);
     // 按原始二进制验证长度，避免字符串编码转换破坏头像内容。
     const bytes = new Uint8Array(response.data);
     // 校验段起点、总长度和实际字节数，拒绝拼接截断或异常扩大的图片。
@@ -65,13 +69,17 @@ function createAvatarCache(request, platform) {
       response.statusCode !== 206 ||
       !range ||
       Number(range[1]) !== start ||
-      Number(range[2]) > end ||
-      Number(range[3]) > maximum ||
-      bytes.length !== Number(range[2]) - start + 1
+      !Number.isSafeInteger(total) ||
+      total <= 0 ||
+      total > MAX_IMAGE_BYTES ||
+      last < start ||
+      last !== Math.min(end, total - 1) ||
+      bytes.length !== last - start + 1
     )
       throw new Error('图片未完整下载，请稍后重试');
     // 仅将已验证的段暴露给组装逻辑，完整图片长度由后续段再次核对。
-    return { bytes, total: Number(range[3]) };
+    // 非尾段必须完整覆盖请求区间；尾段才允许按真实文件末尾缩短。
+    return { bytes, total };
   }
   /**
    * 从私有资源路由提取允许用于沙盒文件名的随机标识。
@@ -146,12 +154,16 @@ function createAvatarCache(request, platform) {
     // 首段已限制总大小，按声明总长分配一次连续缓冲区。
     const content = new Uint8Array(first.total);
     content.set(first.bytes);
-    if (first.bytes.length < first.total) {
-      // 后段必须延续首段范围且总长一致，不能把两次不同内容拼成可预览图片。
-      const second = await readPart(route, first.bytes.length, first.total - 1);
-      if (second.total !== first.total || first.bytes.length + second.bytes.length !== first.total)
-        throw new Error('图片未完整下载，请稍后重试');
-      content.set(second.bytes, first.bytes.length);
+    let offset = first.bytes.length;
+    // 10MiB图片最多20段；每次只取当前段，不让第二个请求携带剩余9.5MiB回包。
+    while (offset < first.total) {
+      const end = Math.min(offset + partSize - 1, first.total - 1);
+      const part = await readPart(route, offset, end);
+      // 后段必须延续前段且总长一致，拒绝下载期间被替换或截断的图片。
+      if (part.total !== first.total) throw new Error('图片未完整下载，请稍后重试');
+      content.set(part.bytes, offset);
+      // 起点只推进实际校验过的段长，不能留空洞或覆盖已收到的前段字节。
+      offset += part.bytes.length;
     }
     // 只在完整校验后落盘，失败的分段不会留下被当作成功缓存的图片。
     const filePath = platform.env.USER_DATA_PATH + '/' + prefix + filename;

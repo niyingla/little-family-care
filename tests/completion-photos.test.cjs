@@ -6,6 +6,7 @@ const path = require('node:path');
 const { createSQLiteRepository } = require('../selfhost/sqlite-repository.cjs');
 const { createHttpApplication } = require('../selfhost/app.cjs');
 const d = require('../miniprogram/utils/domain');
+const { MAX_IMAGE_BYTES } = require('../miniprogram/utils/media-policy');
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const uid = (value) => hash(value).slice(0, 32);
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
@@ -123,7 +124,8 @@ function photoController(platform, call, loadPrivateImage = async (url) => url) 
     {
       module,
       wx: platform,
-      require: () => ({ call, loadPrivateImage }),
+      require: (name) =>
+        name.endsWith('/media-policy') ? { MAX_IMAGE_BYTES } : { call, loadPrivateImage },
     }
   );
   const page = {
@@ -266,7 +268,9 @@ test('取消选图、图片过大和上传失败均不返回可完成的照片�
         chooseMedia: async () => {
           if (failure === 'cancel') throw { errMsg: 'chooseMedia:fail cancel' };
           return {
-            tempFiles: [{ size: failure === 'size' ? 1048577 : 9, tempFilePath: '/selected.png' }],
+            tempFiles: [
+              { size: failure === 'size' ? MAX_IMAGE_BYTES + 1 : 9, tempFilePath: '/selected.png' },
+            ],
           };
         },
         getFileSystemManager: () => ({ readFileSync: () => png.toString('base64') }),
@@ -282,7 +286,7 @@ test('取消选图、图片过大和上传失败均不返回可完成的照片�
     assert.equal(uploaded, failure === 'upload');
   }
   assert.equal(toasts.length, 2);
-  assert.match(toasts[0], /1MB/);
+  assert.match(toasts[0], /10MB/);
   assert.equal(toasts[1], '照片上传失败');
 });
 
@@ -311,10 +315,10 @@ test('上传照片拒绝未入家或移除成员、非当天、非应做及已�
   assert.equal((await f.repo.list('care_files', {}, 10)).length, 0);
 });
 
-test('照片只接收最多1MB的JPEG或PNG，拒绝畸形编码和伪造类型', async (t) => {
+test('照片只接收最多10MB的JPEG或PNG，保留1MiB回归并拒绝畸形编码和伪造类型', async (t) => {
   const f = await fixture(t),
     token = await f.login('member');
-  const oversized = Buffer.alloc(1024 * 1024 + 1);
+  const oversized = Buffer.alloc(MAX_IMAGE_BYTES + 1);
   png.copy(oversized);
   for (const base64 of [
     '%%%bad',
@@ -337,6 +341,33 @@ test('照片只接收最多1MB的JPEG或PNG，拒绝畸形编码和伪造类型'
   );
   assert.equal(uploaded.ok, true);
   assert.match(uploaded.data.photoId, /\.jpg$/);
+});
+
+test('完成照片选择允许超过旧1MiB限制直到10MiB，不擅自提交完成动作', async () => {
+  for (const size of [1024 * 1024 + 1, MAX_IMAGE_BYTES]) {
+    const calls = [],
+      toasts = [];
+    const { controller, page } = photoController(
+      {
+        chooseMedia: async () => ({ tempFiles: [{ size, tempFilePath: '/selected.png' }] }),
+        getFileSystemManager: () => ({ readFileSync: () => png.toString('base64') }),
+        showToast: (options) => toasts.push(options.title),
+      },
+      async (action, data) => {
+        calls.push({ action, data });
+        return { photoId: 'photo:chosen' };
+      }
+    );
+    assert.equal(
+      await controller.chooseCompletionPhoto.call(page, { id: 'task1' }),
+      'photo:chosen'
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].action, 'uploadCompletionPhoto');
+    assert.equal(calls[0].data.taskId, 'task1');
+    assert.equal(page.data.busy, false);
+    assert.deepEqual(toasts, []);
+  }
 });
 
 test('快照只为本家庭对应任务日期的照片生成短链，保留全部历史并限制签名数量', async (t) => {

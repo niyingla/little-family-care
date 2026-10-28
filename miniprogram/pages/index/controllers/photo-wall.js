@@ -1,5 +1,6 @@
 const api = require('../../../utils/client');
 const d = require('../../../utils/domain');
+const { MAX_IMAGE_BYTES } = require('../../../utils/media-policy');
 
 /**
  * 将界面选项转换为明确发布或浏览范围，家庭选项不作为虚拟宝宝提交。
@@ -318,8 +319,8 @@ module.exports = {
       });
       const files = selected.tempFiles || [];
       // 先检查整批大小再逐张上传，最后一张超限不能造成前几张无意留在云端。
-      if (files.length > remaining || files.some((file) => file.size > 1024 * 1024))
-        throw new Error('每张照片需在1MB以内，每篇最多9张');
+      if (files.length > remaining || files.some((file) => file.size > MAX_IMAGE_BYTES))
+        throw new Error('每张照片需在10MB以内，每篇最多9张');
       for (const file of files) {
         const base64 = wx.getFileSystemManager().readFileSync(file.tempFilePath, 'base64');
         // 每张独立请求控制正文大小，不把九张照片编码塞入一次云托管调用。

@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const d = require('./domain');
 const { createActivityRecorder } = require('./activity.cjs');
+const { MAX_IMAGE_BYTES, MAX_BASE64_LENGTH } = require('./media-policy');
 const PHOTO_ID = /^photo:[a-f0-9]{32}\.(png|jpg)$/;
 const POST_ID = /^[a-f0-9]{32}$/;
 const MAX_PHOTOS = 9;
@@ -157,7 +158,7 @@ function createPhotoWall(repo, { readMember, hash, randomId, now, avatars, photo
   /**
    * 为当前家人上传一张私有墙照片，不立即发布或签发地址。
    * @param {string} openid 已认证的微信会话身份。
-   * @param {object} data scope、babyId及base64；家庭babyId为空，JPG/PNG解码后最多1MB。
+   * @param {object} data scope、babyId及base64；家庭babyId为空，JPG/PNG解码后最多10MB。
    * @returns {Promise<object>} 仅含photoId，后续发布仍须验证用途及归属。
    * @throws {Error} 身份、宝宝、图片格式或真实大小不合法，或持久化失败。
    */
@@ -168,8 +169,10 @@ function createPhotoWall(repo, { readMember, hash, randomId, now, avatars, photo
     const encoded = data.base64;
     // 编码长度先限流，解码后再核对真实字节，不能采信客户端文件扩展名或size。
     check(
-      typeof encoded === 'string' && encoded.length <= 1400000 && /^[a-zA-Z0-9+/=]+$/.test(encoded),
-      '请上传1MB以内JPG或PNG照片'
+      typeof encoded === 'string' &&
+        encoded.length <= MAX_BASE64_LENGTH &&
+        /^[a-zA-Z0-9+/=]+$/.test(encoded),
+      '请上传10MB以内JPG或PNG照片'
     );
     const buffer = Buffer.from(encoded, 'base64');
     // 图片类型由二进制文件头区分，不使用相册里可任意改名的文件后缀。
@@ -177,8 +180,8 @@ function createPhotoWall(repo, { readMember, hash, randomId, now, avatars, photo
     const png = buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     // 标准编码回转校验拒绝截断或多余填充，上传成功必须有完整可保存的字节。
     check(
-      (jpeg || png) && buffer.length <= 1024 * 1024 && buffer.toString('base64') === encoded,
-      '请上传1MB以内JPG或PNG照片'
+      (jpeg || png) && buffer.length <= MAX_IMAGE_BYTES && buffer.toString('base64') === encoded,
+      '请上传10MB以内JPG或PNG照片'
     );
     // 随机文件名不会暴露宝宝名字、拍摄时间或用户设备中的原始路径。
     const filename = `${randomId()}.${jpeg ? 'jpg' : 'png'}`,
@@ -211,7 +214,7 @@ function createPhotoWall(repo, { readMember, hash, randomId, now, avatars, photo
     // 表情按字符计数，不因UTF16代理对把一段合法说明错误计算成两倍长度。
     check(typeof text === 'string' && [...text].length <= 200, '照片文字最多200字');
     const photoIds = data.photoIds;
-    // 每张上传限制1MB，发布还需独立限制整篇照片数量，不能无限引用已有文件。
+    // 每张上传限制10MB，发布还需独立限制整篇照片数量，不能无限引用已有文件。
     // 重复文件不能伪装成多张照片，也不能让用户提交头像或外部URL作为照片。
     check(
       Array.isArray(photoIds) &&

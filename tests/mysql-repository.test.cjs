@@ -93,7 +93,8 @@ test(
     assert.deepEqual(await second.list(collection, { value: '12' }, 10), []);
     assert.equal((await second.list(collection, { value: 12 }, 10)).length, 1);
     assert.deepEqual(await second.list(collection, { ownerId: "family-a' OR 1=1 --" }, 10), []);
-    const avatar = Buffer.alloc(1024 * 1024, 7).toString('base64');
+    // 10MiB原图编码后约14MB，真实跨连接回读验证现有数据库报文上限足够。
+    const avatar = Buffer.alloc(10 * 1024 * 1024, 7).toString('base64');
     await first.put(collection, 'avatar', { data: avatar });
     assert.equal((await second.get(collection, 'avatar')).data, avatar);
   }

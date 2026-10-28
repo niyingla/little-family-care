@@ -10,6 +10,11 @@ for (const target of ['server', 'cloudfunctions/family/lib', 'cloudfunctions/rem
     path.join(root, 'miniprogram/utils/activity-policy.js'),
     path.join(dir, 'activity-policy.js')
   );
+  // 上传和读取大小共用策略，避免前端允许10MB而云端仍按旧上限拒绝。
+  fs.copyFileSync(
+    path.join(root, 'miniprogram/utils/media-policy.js'),
+    path.join(dir, 'media-policy.js')
+  );
 }
 for (const name of ['family', 'reminder']) {
   for (const file of [

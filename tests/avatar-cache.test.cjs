@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { createAvatarCache } = require('../miniprogram/utils/avatar-cache');
+const { MAX_IMAGE_BYTES } = require('../miniprogram/utils/media-policy');
 
 test('云托管头像按响应上限分段读取并写成真实本机图片，相同头像不重复下载', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'care-avatar-test-'));
@@ -69,6 +71,95 @@ test('拒绝错误分段长度，不把截断头像写入小程序私有目录',
 function avatarRoute(id) {
   return '/api/avatar/' + id.toString(16).padStart(32, '0') + '.jpg?expires=1';
 }
+
+function realDownload(t, source, transform = (response) => response) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'care-avatar-test-'));
+  t.after(() => {
+    if (!directory.startsWith(path.join(os.tmpdir(), 'care-avatar-test-')))
+      throw new Error('测试目录越界');
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+  const ranges = [];
+  const platform = {
+    env: { USER_DATA_PATH: directory },
+    getFileSystemManager: () => ({
+      readdirSync: fs.readdirSync,
+      unlinkSync: fs.unlinkSync,
+      writeFile: (options) =>
+        fs.writeFile(options.filePath, Buffer.from(options.data), (error) =>
+          error ? options.fail(error) : options.success()
+        ),
+    }),
+  };
+  const request = async (_route, _data, _token, options) => {
+    const match = /^bytes=(\d+)-(\d+)$/.exec(options.header.Range);
+    const start = Number(match[1]),
+      end = Math.min(Number(match[2]), source.length - 1);
+    ranges.push({ start, end });
+    assert.ok(end - start + 1 <= 512 * 1024, '单段不能突破云托管回包边界');
+    return transform(
+      {
+        statusCode: 206,
+        header: { 'Content-Range': `bytes ${start}-${end}/${source.length}` },
+        data: Uint8Array.from(source.subarray(start, end + 1)).buffer,
+      },
+      ranges.length
+    );
+  };
+  return { directory, ranges, load: createAvatarCache(request, platform) };
+}
+
+test('10MiB高熵图片按20段连续512KiB读取，真实落盘字节完全一致且命中不再下载', async (t) => {
+  const source = crypto.randomBytes(MAX_IMAGE_BYTES);
+  const { directory, ranges, load } = realDownload(t, source);
+  const file = await load(avatarRoute(500));
+  assert.equal(path.dirname(file), directory);
+  assert.deepEqual(fs.readFileSync(file), source);
+  assert.equal(ranges.length, 20);
+  for (let index = 0; index < ranges.length; index++)
+    assert.deepEqual(ranges[index], {
+      start: index * 512 * 1024,
+      end: (index + 1) * 512 * 1024 - 1,
+    });
+  assert.equal(await load(avatarRoute(500)), file);
+  assert.equal(ranges.length, 20);
+});
+
+test('超出10MiB的总长度在首段拒绝，沙盒中不产生可被预览的文件', async (t) => {
+  const { directory, ranges, load } = realDownload(t, Buffer.alloc(MAX_IMAGE_BYTES + 1));
+  await assert.rejects(load(avatarRoute(501)), /完整/);
+  assert.equal(ranges.length, 1);
+  assert.deepEqual(fs.readdirSync(directory), []);
+});
+
+test('10MiB图片中间段总长度变化立即拒绝，不落盘也不再请求后续段', async (t) => {
+  const source = Buffer.alloc(MAX_IMAGE_BYTES, 1);
+  const { directory, ranges, load } = realDownload(t, source, (response, count) => {
+    if (count === 2)
+      response.header['Content-Range'] = response.header['Content-Range'].replace(
+        '/' + MAX_IMAGE_BYTES,
+        '/' + (MAX_IMAGE_BYTES - 1)
+      );
+    return response;
+  });
+  await assert.rejects(load(avatarRoute(502)), /完整/);
+  assert.equal(ranges.length, 2);
+  assert.deepEqual(fs.readdirSync(directory), []);
+});
+
+test('中间段起点不连续时拒绝，不能拼接错位图片', async (t) => {
+  const { directory, ranges, load } = realDownload(
+    t,
+    Buffer.alloc(MAX_IMAGE_BYTES),
+    (response, count) => {
+      if (count === 2) response.header['Content-Range'] = `bytes 524289-1048575/${MAX_IMAGE_BYTES}`;
+      return response;
+    }
+  );
+  await assert.rejects(load(avatarRoute(503)), /完整/);
+  assert.equal(ranges.length, 2);
+  assert.deepEqual(fs.readdirSync(directory), []);
+});
 
 function mockCache(beforeResponse = async () => {}) {
   const files = new Map([['/sandbox/unrelated.txt', Buffer.from('keep')]]);
@@ -192,4 +283,88 @@ test('20个进行中下载占满预算后新任务等待，不扩大缓存或重
     await Promise.all(pending);
   }
   assert.ok(maximumFiles() <= 20);
+});
+
+test('头像选择允许10MiB边界，超出时在读取文件和上传之前拒绝', async () => {
+  const vm = require('node:vm');
+  for (const size of [1024 * 1024 + 1, MAX_IMAGE_BYTES, MAX_IMAGE_BYTES + 1]) {
+    const module = { exports: {} },
+      calls = [],
+      toasts = [];
+    let reads = 0;
+    vm.runInNewContext(
+      fs.readFileSync(
+        path.join(__dirname, '../miniprogram/pages/index/controllers/family.js'),
+        'utf8'
+      ),
+      {
+        module,
+        require: (name) =>
+          name.endsWith('/media-policy')
+            ? { MAX_IMAGE_BYTES }
+            : {
+                call: async (action, data) => {
+                  calls.push({ action, data });
+                  return { fileID: 'avatar:chosen' };
+                },
+              },
+        wx: {
+          chooseMedia: async () => ({ tempFiles: [{ size, tempFilePath: '/chosen.png' }] }),
+          getFileSystemManager: () => ({
+            readFileSync: () => {
+              reads++;
+              return 'test-base64';
+            },
+          }),
+          showToast: (options) => toasts.push(options.title),
+        },
+      }
+    );
+    const page = {
+      data: { demo: false, busy: false },
+      setData(value) {
+        Object.assign(this.data, value);
+      },
+    };
+    await module.exports.chooseAvatar.call(page);
+    assert.equal(calls.length, size <= MAX_IMAGE_BYTES ? 1 : 0);
+    assert.equal(reads, size <= MAX_IMAGE_BYTES ? 1 : 0);
+    if (calls.length) assert.equal(calls[0].action, 'uploadAvatar');
+    else assert.match(toasts[0], /10MB/);
+    assert.equal(page.data.busy, false);
+  }
+});
+
+test('沙盒写入失败明确拒绝且释放缓存条目，重试成功后才返回本地路径', async () => {
+  let writes = 0,
+    requests = 0;
+  const files = new Set();
+  const load = createAvatarCache(
+    async () => {
+      requests++;
+      return {
+        statusCode: 206,
+        header: { 'Content-Range': 'bytes 0-3/4' },
+        data: new Uint8Array([1, 2, 3, 4]).buffer,
+      };
+    },
+    {
+      env: { USER_DATA_PATH: '/sandbox' },
+      getFileSystemManager: () => ({
+        readdirSync: () => [],
+        writeFile: ({ filePath, success, fail }) => {
+          if (++writes === 1) fail(new Error('沙盒空间不足'));
+          else {
+            files.add(filePath);
+            success();
+          }
+        },
+      }),
+    }
+  );
+  await assert.rejects(load(avatarRoute(700)), /沙盒空间不足/);
+  assert.equal(files.size, 0);
+  const filename = await load(avatarRoute(700));
+  assert.ok(files.has(filename));
+  assert.equal(requests, 2);
 });

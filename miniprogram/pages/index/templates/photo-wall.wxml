@@ -21,13 +21,13 @@
       </view>
     </picker>
     <textarea
-      class="field"
+      class="field wall-description"
       placeholder="记下一句今天的小美好（最多200字）"
       maxlength="200"
+      auto-height="{{false}}"
       value="{{wallDraft.text}}"
       bindinput="changeWallText"
       disabled="{{busy}}"
-      style="width: 100%; box-sizing: border-box; min-height: 150rpx"
     />
     <view style="display: flex; flex-wrap: wrap; gap: 12rpx">
       <view wx:for="{{wallDraft.photos}}" wx:key="photoId" style="width: 30%">
@@ -54,7 +54,7 @@
     >
       ＋ 选择照片 {{wallDraft.photos.length}} / 9
     </button>
-    <view class="muted">每张1MB以内，支持JPG和PNG，仅已加入的家人可看。</view>
+    <view class="muted">每张10MB以内，每篇最多9张，支持JPG和PNG，仅已加入的家人可看。</view>
     <button
       class="primary"
       bindtap="publishWallPost"

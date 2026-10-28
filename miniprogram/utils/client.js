@@ -2,7 +2,18 @@ const d = require('./domain');
 const config = require('../config');
 const { createTransport } = require('./transport');
 const { createAvatarCache } = require('./avatar-cache');
+const {
+  MAX_IMAGE_BYTES,
+  MAX_BASE64_LENGTH,
+  UPLOAD_CHUNK_CHARACTERS,
+  MAX_UPLOAD_PARTS,
+} = require('./media-policy');
 const KEY = 'little-family-care-demo-v1';
+const IMAGE_UPLOAD_FIELDS = {
+  uploadAvatar: [],
+  uploadCompletionPhoto: ['taskId', 'date'],
+  uploadWallPhoto: ['scope', 'babyId'],
+};
 let demo = false;
 let sessionToken = '';
 let loginPromise = null;
@@ -137,6 +148,60 @@ function loadDemo() {
 }
 
 /**
+ * 将云托管或自有HTTPS的大图拆成顺序小请求，保持原上传动作的业务结果。
+ * @param {string} action 固定白名单内的头像、完成照片或照片墙上传动作。
+ * @param {object} data 原上传参数，base64为无前缀完整图片，业务归属按动作白名单保留。
+ * @returns {Promise<object>} 全部分片成功后由完成接口返回原fileID或photoId结果。
+ * @throws {Error} 大小非法、初始化或任一分片失败时立即停止，不自动重建上传会话。
+ */
+async function uploadImageChunks(action, data) {
+  const base64 = data.base64;
+  const totalParts = Math.ceil(base64.length / UPLOAD_CHUNK_CHARACTERS);
+  // Base64按三字节取整，边界上超出一个字节也可能同长，需扣除末尾填充精确计数。
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  const imageBytes = (base64.length / 4) * 3 - padding;
+  // 与前后端共享的原图及Base64上限保持一致，异常大图不创建无法完成的会话。
+  if (
+    base64.length > MAX_BASE64_LENGTH ||
+    imageBytes > MAX_IMAGE_BYTES ||
+    totalParts > MAX_UPLOAD_PARTS
+  )
+    throw new Error(`图片过大，请使用${MAX_IMAGE_BYTES / 1024 / 1024}MB以内的图片`);
+  const metadata = {};
+  // 只转交动作实际需要的归属字段，不能把姓名、凭据或整份表单送入分片元数据。
+  for (const field of IMAGE_UPLOAD_FIELDS[action])
+    if (data[field] !== undefined) metadata[field] = data[field];
+  // 初始化不携带图片正文；每批只创建一次会话，后续失败留给服务端按期限回收。
+  const session = await callServer('initImageUpload', {
+    action,
+    metadata,
+    totalLength: base64.length,
+    totalParts,
+  });
+  // 会话标识限定为有界字符串，异常响应不能放大为后续每片重复携带的大请求。
+  if (
+    !session ||
+    typeof session.uploadId !== 'string' ||
+    !session.uploadId ||
+    session.uploadId.length > 128
+  )
+    throw new Error('图片上传初始化失败，请重试');
+  // 分片序号从0开始，逐片确认后再前进，避免一次选图制造大量并发上传。
+  for (let index = 0; index < totalParts; index++) {
+    const result = await callServer('appendImageChunk', {
+      uploadId: session.uploadId,
+      index,
+      // ASCII Base64按字符切分，每个请求正文远低于实际验证过的100KB边界。
+      chunk: base64.slice(index * UPLOAD_CHUNK_CHARACTERS, (index + 1) * UPLOAD_CHUNK_CHARACTERS),
+    });
+    // HTTP成功仍需明确接收标记，未接收的块不能继续组装或冒充上传成功。
+    if (!result || result.accepted !== true) throw new Error('图片分片上传失败，请重试');
+  }
+  // 只有全部块确认后才完成组装；不触发事项完成、发布或家人通知等后续业务。
+  return callServer('finishImageUpload', { uploadId: session.uploadId });
+}
+
+/**
  * 在用户明确选择的真实共享或本地体验模式下执行业务动作。
  * @param {string} action 后端或共用业务域支持的动作名称。
  * @param {object} data 动作参数，省略时使用空对象。
@@ -145,6 +210,17 @@ function loadDemo() {
  */
 async function call(action, data = {}) {
   if (!demo) {
+    // 三种大图上传统一使用小包，未来从云托管切换自有HTTPS时不改变业务协议。
+    if (
+      Object.prototype.hasOwnProperty.call(IMAGE_UPLOAD_FIELDS, action) &&
+      typeof data.base64 === 'string' &&
+      data.base64.length > UPLOAD_CHUNK_CHARACTERS
+    ) {
+      // 旧云开发备选入口没有同一分片合同，不能把大图交给旧单包流程后声称支持。
+      if (!config.cloudRunEnvId && !config.cloudRunService && !config.apiBaseUrl)
+        throw new Error('当前云开发模式暂不支持大图上传，请使用家庭共享服务');
+      return uploadImageChunks(action, data);
+    }
     // 已配置HTTP或云托管时优先使用实际后端，失败不静默回退旧云开发环境。
     if (config.cloudRunEnvId || config.cloudRunService || config.apiBaseUrl)
       return callServer(action, data);

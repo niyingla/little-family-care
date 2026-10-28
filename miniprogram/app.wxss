@@ -530,6 +530,14 @@ input {
   height: auto;
   margin: 12rpx 0;
 }
+/* 原生 textarea 不沿用普通输入框的自动高度，长说明在框内滚动，避免推走发布按钮。 */
+.wall-description {
+  box-sizing: border-box;
+  width: 100%;
+  height: 180rpx;
+  min-height: 180rpx;
+  max-height: 180rpx;
+}
 .error {
   background: #f9e6de;
   color: #a86b56;

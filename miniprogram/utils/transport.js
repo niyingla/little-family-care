@@ -27,7 +27,8 @@ function createTransport(config, platform) {
     const parameters = {
       method: options.method || 'POST',
       data,
-      timeout: 15000,
+      // 大图完成需跨云读取、清空至多214片；只给固定完成动作更长预算，失败不自动重发。
+      timeout: path === '/api/call' && data && data.action === 'finishImageUpload' ? 60000 : 15000,
       header,
       ...(options.responseType ? { responseType: options.responseType } : {}),
     };

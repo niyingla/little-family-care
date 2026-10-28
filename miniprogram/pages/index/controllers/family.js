@@ -1,5 +1,6 @@
 // 宝宝资料、成员邀请与订阅交互；真实身份由云端获取。
 const api = require('../../../utils/client');
+const { MAX_IMAGE_BYTES } = require('../../../utils/media-policy');
 module.exports = {
   /**
    * 打开宝宝资料弹窗，区分已有资料与空白新建表单。
@@ -33,7 +34,7 @@ module.exports = {
       });
       const file = response.tempFiles[0];
       // 上传前限制体量，避免大图在base64转换和私有缓存中放大内存占用。
-      if (file.size > 1024 * 1024) throw new Error('请选择1MB以内的图片，或先裁剪压缩');
+      if (file.size > MAX_IMAGE_BYTES) throw new Error('请选择10MB以内的图片，或先裁剪压缩');
       if (this.data.demo) {
         // 体验头像只持久化在微信沙盒，不调用真实家庭上传接口。
         const saved = await new Promise((resolve, reject) =>
