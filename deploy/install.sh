@@ -23,7 +23,10 @@ if [ ! -f /etc/little-family-care.env ]; then
   sed -i "s/^SIGNING_SECRET=.*/SIGNING_SECRET=$task_secret/" /etc/little-family-care.env
 fi
 chmod 600 /etc/little-family-care.env
-install -m 644 "$task_source/deploy/nginx.conf" /etc/little-family-care/nginx.conf
+# 已经配置HTTPS的实例保留现有入口，避免后续更新退回HTTP。
+if [ ! -f /etc/little-family-care/nginx.conf ]; then
+  install -m 644 "$task_source/deploy/nginx.conf" /etc/little-family-care/nginx.conf
+fi
 install -m 644 "$task_source/deploy/little-family-care.service" /etc/systemd/system/little-family-care.service
 install -m 644 "$task_source/deploy/little-family-care-proxy.service" /etc/systemd/system/little-family-care-proxy.service
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew Little Family Care TLS certificates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --deploy-hook /etc/little-family-care/renew-certificate-hook.sh

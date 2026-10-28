@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Little Family Care TLS certificates twice daily
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

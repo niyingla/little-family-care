@@ -42,7 +42,9 @@
 
 ``GET /health`` 用于服务自检；``POST /api/login`` 使用wx.login返回的code换取服务器会话，``POST /api/call`` 使用会话调用家庭业务。头像以10分钟签名URL访问。请先配置微信AppID和AppSecret、唯一管理员OpenID及真实消息模板；这些值不提交Git。
 
-前端在本地 ``config.local.js`` 填写 ``apiBaseUrl`` 的HTTPS域名。域名解析、证书和微信合法域名配置完成前，只能检查服务器接口，不能宣称正式小程序已接通。部署脚本启用HTTP，HTTPS需在域名与证书就绪后配置。Node进程只监听127.0.0.1:3000，外部通过Nginx访问80端口。
+前端在本地 ``config.local.js`` 填写 ``apiBaseUrl`` 的HTTPS域名。域名解析到服务器后安装Certbot，运行 ``sudo bash deploy/configure-https.sh api.example.com`` 申请免费证书并配置HTTPS。脚本先备份配置，失败时回退；成功后启用每天检查两次的续期定时器，证书续期成功才重载Nginx。Node进程只监听127.0.0.1:3000，外部经Nginx的443端口访问，80端口保留证书挑战及HTTPS跳转。
+
+域名、证书、微信凭据与合法域名配置完成并通过真机验证后，才表示正式小程序已接通。证书续期可用 ``sudo certbot renew --dry-run`` 验证；私钥只保留服务器，不进入源码。
 
 微信云开发备选接入
 ------------------

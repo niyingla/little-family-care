@@ -113,7 +113,9 @@ npm run preview</pre>
     <p>
       采用Node.js
       24、SQLite和Nginx。后端入口为selfhost/main.cjs，部署脚本为deploy/install.sh；前端在config.local.js填写apiBaseUrl。服务器私有配置为/etc/little-family-care.env，数据为/var/lib/little-family-care。先部署并验证GET
-      /health，再补齐微信AppID/AppSecret、管理员身份、HTTPS域名和消息模板。Node仅监听127.0.0.1:3000，HTTP经Nginx的80端口对外。
+      /health，再补齐微信AppID/AppSecret、管理员身份、HTTPS域名和消息模板。Node仅监听127.0.0.1:3000。域名解析完成后安装Certbot，执行sudo
+      bash deploy/configure-https.sh
+      api.example.com，配置443入口、80跳转与自动续期；脚本会备份配置并在失败时回退。私钥仅保留服务器。
     </p>
     <p>
       执行时间可不设置。设置后，未完成且超时30分钟才通知所选家人；被通知人与执行人可不同。微信订阅限制仍适用。

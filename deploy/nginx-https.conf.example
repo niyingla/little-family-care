@@ -1,0 +1,41 @@
+user littlecare;
+worker_processes 1;
+pid /run/little-family-care-nginx.pid;
+error_log /var/log/little-family-care/nginx-error.log warn;
+
+events { worker_connections 256; }
+http {
+  access_log off;
+  server_tokens off;
+  client_max_body_size 2m;
+  client_body_temp_path /var/lib/little-family-care/nginx/body;
+  proxy_temp_path /var/lib/little-family-care/nginx/proxy;
+  server {
+    listen 80;
+    server_name __DOMAIN__;
+    location ^~ /.well-known/acme-challenge/ {
+      root /var/lib/little-family-care/acme;
+      default_type text/plain;
+      try_files $uri =404;
+    }
+    location / { return 308 https://__DOMAIN__$request_uri; }
+  }
+  server {
+    listen 443 ssl;
+    server_name __DOMAIN__;
+    ssl_certificate /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:LittleCareTLS:1m;
+    ssl_session_timeout 10m;
+    ssl_ciphers HIGH:!aNULL:!MD5:!3DES;
+    location / {
+      proxy_pass http://127.0.0.1:3000;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_read_timeout 25s;
+    }
+  }
+}
