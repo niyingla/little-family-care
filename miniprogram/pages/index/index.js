@@ -10,6 +10,7 @@ const birthdays = require('./controllers/birthdays');
 const completionPhotos = require('./controllers/completion-photos');
 const sharing = require('./controllers/sharing');
 const photoWall = require('./controllers/photo-wall');
+const review = require('./controllers/review');
 const { shareTaskCard } = require('../../utils/task-feedback');
 const { createActivityLogger, instrumentPage } = require('../../utils/activity-client');
 
@@ -24,9 +25,11 @@ Page(
     ...completionPhotos,
     ...sharing,
     ...photoWall,
+    ...review,
     data: {
       ready: false,
       demo: false,
+      reviewMode: false,
       gate: true,
       view: 'today',
       scope: 'baby',
@@ -72,6 +75,7 @@ Page(
       wallBabyIndex: 0,
       wallComposerBabies: [],
       wallComposerIndex: 0,
+      wallComposerOpen: false,
       wallDraft: { babyId: '', text: '', photos: [] },
       wallUploading: false,
       profileName: '',
@@ -168,7 +172,7 @@ Page(
      */
     async boot() {
       // 每次重试重新判断配置及身份，旧错误不代表本次连接也会失败。
-      this.setData({ error: '' });
+      this.setData({ error: '', reviewMode: api.isReviewMode() });
       if (!api.config.apiBaseUrl && !api.config.envId && !api.config.cloudRunEnvId) {
         // 未配置共享服务时明确留在欢迎页，示例只能由用户主动进入。
         this.setData({ ready: true, gate: true, cloudAvailable: false });
@@ -193,6 +197,7 @@ Page(
         }
       } catch (error) {
         // 初始化失败仍完成首屏加载，让用户能够看到错误并手动重试。
+        if (this.handleReviewSessionError(error)) return;
         this.setData({ ready: true, error: error.message });
       }
     },
@@ -237,6 +242,7 @@ Page(
         wallPosts: [],
         wallCursor: '',
         wallDraft: { babyId: '', text: '', photos: [] },
+        wallComposerOpen: false,
         // 关闭旧示例编辑器，避免尚未保存的示例表单被提交到真实家庭。
         modal: '',
       });
@@ -284,6 +290,12 @@ Page(
               // 编辑入口只属于管理员或本人，家庭身份称呼不参与权限判断。
               // 保留服务端规范化的生日和家庭称呼，展示层不根据称呼推断角色。
               ...m,
+              // 私有短链由统一客户端解析，原始文件标识只在本地体验中作兼容显示。
+              picture: m.avatarUrl || (this.data.demo ? m.avatar || '' : ''),
+              initial: m.name.slice(0, 1),
+              isOwner: m.id === snapshot.home.ownerId,
+              canEditAvatar:
+                snapshot.home.ownerId === snapshot.actorId || m.id === snapshot.actorId,
               canEditBirthday:
                 snapshot.home.ownerId === snapshot.actorId || m.id === snapshot.actorId,
             })),
@@ -300,6 +312,7 @@ Page(
         return true;
       } catch (error) {
         // 保留错误供界面重试；普通连接失败不丢弃已有授权快照。
+        if (this.handleReviewSessionError(error)) return false;
         this.setData({ error: error.message });
         // 被移除后立即清空已显示的家庭资料，不退回本地体验绕过权限。
         if (/无权/.test(error.message)) {
@@ -316,6 +329,7 @@ Page(
             wallPosts: [],
             wallCursor: '',
             wallDraft: { babyId: '', text: '', photos: [] },
+            wallComposerOpen: false,
           });
         }
         // 轮询仍保留错误状态，但不持续打断用户。
@@ -349,6 +363,7 @@ Page(
         });
       } catch (error) {
         // 失败保留输入和对话框上下文，由调用者按非空返回值决定是否关闭。
+        if (this.handleReviewSessionError(error)) return null;
         wx.showModal({ title: '暂时没有完成', content: error.message, showCancel: false });
       } finally {
         // 请求失败也释放忙碌状态，用户才能修正输入或重新提交。

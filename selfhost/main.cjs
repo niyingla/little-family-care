@@ -1,5 +1,6 @@
 const { createRuntime } = require('./runtime.cjs');
 const { createHttpApplication } = require('./app.cjs');
+const { createReviewApplication } = require('./review.cjs');
 
 /**
  * 启动服务；自建服务器可带扫描，云托管由阿里云独立调度保证提醒及时。
@@ -9,7 +10,15 @@ const { createHttpApplication } = require('./app.cjs');
 async function start() {
   // 先确认持久化环境可用，再开放业务入口，避免使用空仓库接收家庭请求。
   const { repo, config } = await createRuntime();
-  const application = createHttpApplication({ repo, config });
+  const primary = createHttpApplication({ repo, config });
+  // 正式与审核共用已有监听器和连接池，仅审核集合及签名用途隔离，不新建云资源。
+  const application = await createReviewApplication({
+    repo,
+    config,
+    primary,
+    access: config.reviewAccess,
+  });
+  // 审核路由准备好后才开始接收请求，不能让登录落到尚未完成隔离的数据路径。
   // 默认仅绑定回环地址，由部署的HTTPS入口转发；容器可显式覆盖监听地址。
   const port = Number(process.env.PORT || 3000),
     host = process.env.BIND_HOST || '127.0.0.1';

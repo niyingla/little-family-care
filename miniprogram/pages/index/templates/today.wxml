@@ -24,27 +24,33 @@
       <view class="art-star">✦</view>
     </view>
   </view>
-  <view wx:else class="history-header">
+  <view
+    wx:else
+    class="history-header"
+    bindtouchstart="startHistorySwipe"
+    bindtouchend="endHistorySwipe"
+  >
     <view class="section-title">翻翻成长的小日常</view>
     <view class="muted">完成的、漏掉的，都如实留下。</view>
     <view class="date-control">
-      <button class="date-arrow" data-step="-1" bindtap="changeDay">‹</button>
-      <picker
-        mode="date"
-        value="{{date}}"
-        start="{{createdDate}}"
-        end="{{today}}"
-        bindchange="changeDate"
-      >
+      <button class="date-arrow" data-step="-1" bindtap="changeDay" disabled="{{busy}}">‹</button>
+      <picker mode="date" value="{{date}}" end="{{today}}" bindchange="changeDate">
         <view class="date-label">
           {{date}}
           <text>⌄</text>
         </view>
       </picker>
-      <button class="date-arrow" data-step="1" bindtap="changeDay" disabled="{{date === today}}">
+      <button
+        class="date-arrow"
+        data-step="1"
+        bindtap="changeDay"
+        disabled="{{date === today || busy}}"
+      >
         ›
       </button>
     </view>
+    <view class="muted">左右滑动日期条，也可以点箭头切换日期。</view>
+    <view wx:if="{{date < createdDate}}" class="notice">家庭创建前暂无记录。</view>
   </view>
   <view class="section-row">
     <view class="section-title">

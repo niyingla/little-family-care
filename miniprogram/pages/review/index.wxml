@@ -1,0 +1,41 @@
+<view class="review-page">
+  <view class="review-card">
+    <view class="review-label">审核专用 · 隔离测试数据</view>
+    <view class="review-title">审核账号登录</view>
+    <view class="review-note">
+      此入口使用独立测试数据，与家人的真实资料分开。审核环境不发送真实微信通知。
+    </view>
+    <view class="field-label">审核账号</view>
+    <input
+      class="review-input"
+      value="{{username}}"
+      maxlength="128"
+      placeholder="请输入审核账号"
+      bindinput="onUsernameInput"
+      disabled="{{busy}}"
+    />
+    <view class="field-label">审核口令</view>
+    <input
+      class="review-input"
+      value="{{password}}"
+      password="{{true}}"
+      maxlength="256"
+      placeholder="请输入审核专用口令"
+      bindinput="onPasswordInput"
+      disabled="{{busy}}"
+    />
+    <view class="review-error" wx:if="{{error}}">{{error}}</view>
+    <button
+      class="review-submit"
+      bindtap="submitReviewLogin"
+      loading="{{busy}}"
+      disabled="{{busy || !username || !password}}"
+    >
+      登录审核环境
+    </button>
+    <button class="review-return" bindtap="returnToFamily">返回普通微信入口</button>
+    <view class="review-tip">
+      请使用开发者提供的审核账号，请勿填写个人微信密码。口令不会保存到本地。
+    </view>
+  </view>
+</view>

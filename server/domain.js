@@ -159,6 +159,8 @@ function ruleLabel(rule) {
  * @returns {Array} 附带宝宝、执行人与完成信息的清单。
  */
 function rowsForDate(home, day, date) {
+  // 家庭创建前允许浏览空历史，但不能把较早的周期起点重建为真实漏做事项。
+  if (date < home.createdDate) return [];
   // 当天没有操作记录时，应做任务仍需显示为未完成，不能误判为没有任务。
   const records = (day && day.records) || {};
   // 每项按所查日期选择版本，过滤后再统一排序，不依赖当天是否曾打开页面。

@@ -2,6 +2,34 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createTransport } = require('../miniprogram/utils/transport');
 
+test('会话前缀只由创建参数控制，审核私有图保持原路径且拒绝跨模式和路径跳转', async () => {
+  const calls = [],
+    config = { cloudRunEnvId: 'test', cloudRunService: 'family-care' };
+  const platform = {
+    cloud: {
+      callContainer: async (options) => {
+        calls.push(options);
+        return {};
+      },
+    },
+  };
+  const family = createTransport(config, platform),
+    review = createTransport(config, platform, { review: true });
+  await family('/api/call', { action: 'bootstrap', review: true, mode: 'review' }, 'family-token');
+  assert.equal(calls.at(-1).path, '/api/call');
+  await review('/api/call', { action: 'bootstrap' }, 'review-token');
+  assert.equal(calls.at(-1).path, '/review/api/call');
+  await review('/review/api/call', { action: 'finishImageUpload' }, 'review-token');
+  assert.equal(calls.at(-1).path, '/review/api/call');
+  assert.equal(calls.at(-1).timeout, 60000);
+  const photo = '/review/api/avatar/' + 'a'.repeat(32) + '.png?expires=1&signature=test';
+  await review(photo, undefined, '', { method: 'GET' });
+  assert.equal(calls.at(-1).path, photo);
+  await assert.rejects(family('/review/api/call', {}), /审核/);
+  await assert.rejects(review(photo.slice(7), undefined, '', { method: 'GET' }), /审核/);
+  await assert.rejects(review('/review/api/avatar/../../api/call', {}), /审核/);
+});
+
 test('仅图片分片完成保留60秒组装窗口，登录、普通动作、追加分片及私有读取仍为15秒', async () => {
   // 真实跨云组装含214次读取及清理，独立预算不能放大登录和所有普通业务超时。
   for (const cloud of [true, false]) {

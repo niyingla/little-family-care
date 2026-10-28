@@ -11,12 +11,15 @@ function createActivityLogger(send, enabled) {
   let queue = [],
     timer = null,
     inFlight = null;
+  let stopped = false;
   // 调度、队列与停止能力保持同一实例作用域，页面销毁时可统一释放。
   /**
    * 对尚未发送的事件设置一次合并上传定时器。
    * @returns {void} 空队列不启动定时器，连续触发延后到统一提交点。
    */
   const schedule = () => {
+    // 已销毁的页面实例不能被进行中请求的finally重新启动定时器。
+    if (stopped) return;
     // 后一次交互替换前一次定时器，避免同一队列被多个时钟并发领取。
     clearTimeout(timer);
     if (queue.length) timer = setTimeout(flush, 700);
@@ -27,6 +30,7 @@ function createActivityLogger(send, enabled) {
    */
   async function flush() {
     clearTimeout(timer);
+    if (stopped) return;
     // 已在上传时复用其Promise，不并发领取下一批或重复发送当前批。
     if (inFlight || !queue.length) return inFlight;
     if (!enabled()) {
@@ -38,7 +42,11 @@ function createActivityLogger(send, enabled) {
     // 先移出本批再异步发送，新交互仍能入队等待后续调度。
     // 仅尽力记录，不重试已经提交的业务，也不输出事件里的任意对象。
     inFlight = Promise.resolve()
-      .then(() => send({ events }))
+      .then(() => {
+        // stop可能发生在本批移出队列后、发送微任务执行前，不能改用新身份补发旧事件。
+        if (stopped || !enabled()) return;
+        return send({ events });
+      })
       .catch(() => {
         console.warn('页面行为暂未记录，不影响事项操作');
       })
@@ -57,7 +65,7 @@ function createActivityLogger(send, enabled) {
      * @returns {void} 仅入队或触发尽力上传，不影响原业务交互结果。
      */
     record(event) {
-      if (!enabled()) return;
+      if (stopped || !enabled()) return;
       // 有界队列优先保留最近交互，离线或密集点击不会无限占用内存。
       queue.push(event);
       if (queue.length > 60) queue.shift();
@@ -71,11 +79,26 @@ function createActivityLogger(send, enabled) {
      * @returns {void} 取消定时器并丢弃未发送队列，进行中请求由自身收尾。
      */
     stop() {
+      // 永久停止当前实例；切换审核身份后必须由新页面建立新的独立队列。
+      stopped = true;
       // 离开页面后不再因旧定时器上传尚未发出的交互。
       clearTimeout(timer);
       queue = [];
     },
   };
+}
+
+/**
+ * 仅在切页成功并实际改变视图后记录页面访问。
+ * @param {object} page 当前页面，视图来自刷新成功后提交的真实状态。
+ * @param {string} before 调用切页方法之前的视图，失败时仍应保持该值。
+ * @param {*} result 原方法的成功返回值，false明确表示未完成切换。
+ * @returns {void} 未切换不产生页面访问事件，不根据目标按钮猜测页面。
+ */
+function recordSwitchedView(page, before, result) {
+  // 刷新失败或重复点击当前标签都不能被记成一次新页面访问。
+  if (result === false || page.data.view === before) return;
+  page.recordActivity({ kind: 'page_view', view: page.data.view });
 }
 
 /**
@@ -92,9 +115,16 @@ function instrumentPage(definition) {
     result[name] = function (...args) {
       // 只记录方法名与当前视图，不读取事件detail、dataset或表单内容。
       this.recordActivity({ kind: 'click', name, view: this.data.gate ? 'gate' : this.data.view });
+      const before = this.data.view;
       const value = definition[name].apply(this, args);
-      // 切换后再读视图，确保page_view记录的是交互完成后的目标页面。
-      if (name === 'switchTab') this.recordActivity({ kind: 'page_view', view: this.data.view });
+      if (name === 'switchTab') {
+        // 异步切页先等待真实刷新成功，不能在Promise返回瞬间记录旧视图。
+        if (value && typeof value.then === 'function')
+          void value.then((resolved) => recordSwitchedView(this, before, resolved)).catch(() => {});
+        // 同步方法仍同步记访问，保持原有直接返回值而不强制包装Promise。
+        else recordSwitchedView(this, before, value);
+      }
+      // 观察埋点使用独立分支，原Promise身份、原拒绝对象及同步异常语义全部保留。
       return value;
     };
   }

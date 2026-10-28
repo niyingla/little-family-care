@@ -1,5 +1,5 @@
 {
-  "pages": ["pages/index/index"],
+  "pages": ["pages/index/index", "pages/review/index"],
   "window": {
     "navigationBarTitleText": "我家日常小事簿",
     "navigationBarBackgroundColor": "#FCF8F1",

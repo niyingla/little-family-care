@@ -2,6 +2,7 @@
 const d = require('../../../utils/domain');
 const { completionMessage } = require('../../../utils/task-feedback');
 const timeLabel = (iso) => (iso ? d.chinaTime(iso) : '');
+const HISTORY_SWIPE = { distance: 60, maxDuration: 1000, axisRatio: 1.5 };
 const STATUS = {
   queued: '等待发送',
   sending: '正在处理，结果待确认',
@@ -139,13 +140,14 @@ module.exports = {
   /**
    * 切换主页面并回到当前日期。
    * @param {object} e 标签事件，dataset.id为today/history/tasks/family。
-   * @returns {void} 重新请求当前页所需的日期快照。
+   * @returns {Promise<void>} 新视图和日期只在目标快照加载成功后一起生效。
    */
-  switchTab(e) {
-    // 标签切换清除完成状态筛选，防止新页面因沿用筛选而看起来缺少事项。
+  async switchTab(e) {
+    // 日期请求或业务提交中保持原上下文，旧返回不能把今天页覆盖成昨天记录。
+    if (this.data.refreshing || this.data.busy) return;
     const view = e.currentTarget.dataset.id;
-    this.setData({ view, filter: 'all', date: this.data.today });
-    this.refresh();
+    // 标签切换也延后提交目标，网络失败保留此前日期和记录，不能只更新标题。
+    await this.refresh(false, { view, filter: 'all', date: this.data.today });
   },
   /**
    * 切换宝宝或家庭事项范围。
@@ -183,22 +185,77 @@ module.exports = {
    * @returns {Promise<void>} 加载指定日期，失败由统一刷新流程提示。
    */
   async changeDate(e) {
-    // 不沿用另一日期的完成状态筛选，避免将尚未做过的历史清单隐藏。
-    this.setData({ date: e.detail.value, filter: 'all' });
-    await this.refresh();
+    // 日期刷新中或提交中不竞争请求，旧清单和日期始终成对保留。
+    if (this.data.busy || this.data.refreshing) return;
+    const date = e && e.detail && e.detail.value;
+    if (!d.validDate(date) || date > this.data.today) return;
+    // 切日只有成功后才提交目标日期，失败不把旧记录显示成新一天。
+    await this.refresh(false, { date, filter: 'all' });
   },
   /**
-   * 在家庭创建日至今天之间按日浏览。
+   * 按日浏览过去历史，家庭创建前显示空白记录。
    * @param {object} e 日期箭头事件，dataset.step为前后移动天数。
    * @returns {Promise<void>} 合法日期请求快照，越界时不发请求。
    */
   async changeDay(e) {
-    const date = d.addDays(this.data.date, Number(e.currentTarget.dataset.step));
-    // 创建前没有家庭记录，未来也不允许被展示成已发生的执行历史。
-    if (date < this.data.createdDate || date > this.data.today) return;
-    // 切换日期后重置视觉筛选，实际记录只由目标日期后端快照提供。
-    this.setData({ date, filter: 'all' });
-    await this.refresh();
+    // 连续点击不会提前改变日期或与正在提交的记录竞争快照。
+    if (this.data.busy || this.data.refreshing || !d.validDate(this.data.date)) return;
+    const step = Number(e && e.currentTarget && e.currentTarget.dataset.step);
+    if (step !== -1 && step !== 1) return;
+    const date = d.addDays(this.data.date, step);
+    // 创建前可以看空白历史，未来则不能冒充已有执行历史。
+    if (!d.validDate(date) || date > this.data.today) return;
+    await this.refresh(false, { date, filter: 'all' });
+  },
+  /**
+   * 记录历史日期条的单指起点，不拦截正常竖向滚动。
+   * @param {object} event 微信触摸事件，touches应只有一个有效clientX/clientY点。
+   * @returns {void} 仅保存本次手势的坐标与开始时间，不请求后端。
+   */
+  startHistorySwipe(event) {
+    // 每次触摸先丢弃旧起点，跨页面或多指操作不能沿用上次日期手势。
+    this._historyTouch = null;
+    // 微信client坐标与滑动阈值都以逻辑像素计，不能混入屏幕物理像素。
+    const touches = event && event.touches;
+    if (
+      this.data.view !== 'history' ||
+      this.data.busy ||
+      this.data.refreshing ||
+      !touches ||
+      touches.length !== 1
+    )
+      return;
+    const { clientX: x, clientY: y } = touches[0];
+    // 不接受异常坐标，避免NaN或无穷值被误判成一次有效滑动。
+    // 这里只保存起点，结束时仍会重新检查页面和提交状态。
+    if (Number.isFinite(x) && Number.isFinite(y)) this._historyTouch = { x, y, at: Date.now() };
+  },
+  /**
+   * 将明确的横向滑动转换为前后一天，共用按钮的日期及并发边界。
+   * @param {object} event changedTouches包含本次手势结束位置。
+   * @returns {Promise<void>} 横向有效手势按日切换，其余触摸不产生请求。
+   */
+  async endHistorySwipe(event) {
+    const origin = this._historyTouch;
+    // 起点只消费一次，重复touchend或离开历史页后不能再次切日。
+    this._historyTouch = null;
+    // changedTouches限定一指，双指缩放或意外触控不映射成日期操作。
+    const touches = event && event.changedTouches;
+    if (!origin || this.data.view !== 'history' || !touches || touches.length !== 1) return;
+    // 只比较相对位移，日期条在页面中的位置不影响方向判断。
+    const dx = touches[0].clientX - origin.x,
+      dy = touches[0].clientY - origin.y;
+    // 只接受短时、足够长且横向占主导的手势，竖向滚动和点击不会误翻页。
+    if (
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy) ||
+      Date.now() - origin.at > HISTORY_SWIPE.maxDuration ||
+      Math.abs(dx) < HISTORY_SWIPE.distance ||
+      Math.abs(dx) <= Math.abs(dy) * HISTORY_SWIPE.axisRatio
+    )
+      return;
+    // 向右看前一天，向左看后一天；未来和并发边界由统一切日方法处理。
+    await this.changeDay({ currentTarget: { dataset: { step: dx > 0 ? -1 : 1 } } });
   },
   /**
    * 完成或撤销当天事项，完成时允许用户主动选择拍照。

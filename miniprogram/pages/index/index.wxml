@@ -59,19 +59,28 @@
         </block>
         <view wx:else class="notice">请让管理员给你发送邀请卡片，再从微信聊天打开加入。</view>
         <view wx:if="{{!bootstrap.ownerConfigured}}" class="notice">
-          管理员尚未初始化。请在云函数配置 OWNER_OPENID 后再创建家庭。
+          家庭尚未设置，请联系管理员完成初始化。
         </view>
-        <button wx:if="{{!bootstrap.ownerConfigured}}" class="text-button" bindtap="copyIdentity">
-          复制我自己的 OpenID，供管理员初始化
-        </button>
       </block>
       <view wx:else class="notice">家庭共享服务尚未准备好，可以先体验界面与任务功能。</view>
       <button class="soft" bindtap="startDemo">先体验一下</button>
+      <button class="text-button" bindtap="openReviewLogin" disabled="{{busy}}">
+        审核专用登录
+      </button>
     </view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
     <view class="footer-note">小小的事，有家人一起就很好。</view>
   </block>
   <block wx:else>
+    <view wx:if="{{reviewMode}}" class="notice">
+      <view class="section-row">
+        <text>审核专用 · 隔离测试数据</text>
+        <button class="text-button" size="mini" bindtap="exitReview" disabled="{{busy}}">
+          退出审核
+        </button>
+      </view>
+      <view class="muted">本环境不读取真实家庭资料，也不发送真实微信通知。</view>
+    </view>
     <view wx:if="{{demo}}" class="demo-banner">
       <text>本地体验 · 示例家庭 · 不发送微信通知</text>
       <text class="demo-exit" bindtap="leaveDemo">退出</text>
@@ -149,7 +158,7 @@
     <template
       wx:if="{{view === 'photos'}}"
       is="photoWall"
-      data="{{demo,busy,wallPosts,wallCursor,wallLoading,wallNotice,wallBabyOptions,wallBabyIndex,wallComposerBabies,wallComposerIndex,wallDraft,wallUploading}}"
+      data="{{demo,busy,wallPosts,wallCursor,wallLoading,wallNotice,wallBabyOptions,wallBabyIndex,wallComposerBabies,wallComposerIndex,wallComposerOpen,wallDraft,wallUploading}}"
     />
     <template
       wx:if="{{view === 'family'}}"

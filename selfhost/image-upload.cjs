@@ -1,4 +1,5 @@
 const d = require('../server/domain');
+const { assertMemberAvatarTarget } = require('../server/member-avatars.cjs');
 const {
   MAX_BASE64_LENGTH: MAX_LENGTH,
   UPLOAD_CHUNK_CHARACTERS: CHUNK_SIZE,
@@ -9,6 +10,7 @@ const TTL_MS = 10 * 60000;
 const ID = /^[a-f0-9]{32}$/;
 const META_KEYS = {
   uploadAvatar: [],
+  uploadMemberAvatar: ['memberId'],
   uploadCompletionPhoto: ['taskId', 'date'],
   uploadWallPhoto: ['scope', 'babyId'],
 };
@@ -40,6 +42,8 @@ function metadataFor(action, input = {}) {
     check(typeof input[key] === 'string' && input[key].length <= 128, '图片定位参数类型不正确');
     result[key] = input[key];
   }
+  // 家人头像定位到唯一目标成员，空目标不能在完成阶段临时换成其他家人。
+  if (action === 'uploadMemberAvatar') check(result.memberId, '家人头像目标不正确');
   // 完成照只接受任务及真实公历日，业务当天/待办校验保留在原入口。
   if (action === 'uploadCompletionPhoto')
     check(result.taskId && d.validDate(result.date), '完成照片定位参数不正确');
@@ -88,6 +92,9 @@ function createImageUpload(repo, { readMember, hash, randomId, now, upload }) {
         session.uploadedBy === auth.actorId,
       '无权访问图片上传会话'
     );
+    // 管理员或目标成员在上传途中失效时，后续分片也必须停止。
+    if (session.action === 'uploadMemberAvatar')
+      assertMemberAvatarTarget(home, auth.actorId, session.metadata.memberId);
     // 成功会话已无原始分片，过期后同人仍可安全取回原结果而无需重建文件。
     check(
       session.status === 'done' || session.expiresAt > clock(),
@@ -136,6 +143,9 @@ function createImageUpload(repo, { readMember, hash, randomId, now, upload }) {
     );
     // 先校验定位白名单再占额度，恶意参数不能获得可继续上传的会话。
     const metadata = metadataFor(data.action, data.metadata);
+    // 家人头像允许本人或真正管理员，不与宝宝头像的管理员专属权限混用。
+    if (data.action === 'uploadMemberAvatar')
+      assertMemberAvatarTarget(home, actorId, metadata.memberId);
     // 头像能力只属于真正管理员；完成照和墙照片最终还会重新核对业务绑定。
     if (data.action === 'uploadAvatar') check(home.ownerId === actorId, '仅管理员可上传宝宝头像');
     // 单成员索引文档原子控制额度，不依赖事务适配器未提供的list方法。
@@ -143,6 +153,9 @@ function createImageUpload(repo, { readMember, hash, randomId, now, upload }) {
       const current = await tx.get('care_home', 'home');
       // 限额与当前成员身份共用事务边界，多个初始化请求不能同时越过四会话上限。
       d.assertMember(current, actorId);
+      // 身份初检之后也可能发生移除或权限变化，额度事务内再次核对目标。
+      if (data.action === 'uploadMemberAvatar')
+        assertMemberAvatarTarget(current, actorId, metadata.memberId);
       check(current.ownerId === home.ownerId, '无权访问这个家庭');
       if (data.action === 'uploadAvatar')
         check(current.ownerId === actorId, '仅管理员可上传宝宝头像');

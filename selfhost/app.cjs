@@ -7,6 +7,7 @@ const { createWechat } = require('./wechat.cjs');
 const { createActivityRecorder } = require('../server/activity.cjs');
 const { createPhotoWall } = require('../server/photo-wall.cjs');
 const { createImageUpload } = require('./image-upload.cjs');
+const { createMemberAvatars } = require('../server/member-avatars.cjs');
 const { MAX_IMAGE_BYTES, MAX_BASE64_LENGTH } = require('../server/media-policy');
 const RATE_LIMITS = { ip: 12000, login: 60, business: 240, media: 3000 };
 const MAX_RATE_STATES = 1000;
@@ -58,11 +59,11 @@ async function readBody(request) {
 
 /**
  * 创建服务器模式HTTP入口，与云函数共用同一业务服务和规则。
- * @param {object} options repo、服务端config，可注入微信接口用于隔离外部测试。
+ * @param {object} options repo、服务端config；authenticateLogin为受信服务端认证注入，默认微信换码。
  * @returns {object} HTTP server、定时tick和close方法。
  * @throws {Error} 签名密钥缺失或长度不足时拒绝启动，不能提供无保护的图片入口。
  */
-function createHttpApplication({ repo, config, wechat = createWechat(config) }) {
+function createHttpApplication({ repo, config, wechat = createWechat(config), authenticateLogin }) {
   // 图片依赖签名保护，配置不完整时在接受任何请求之前停止初始化。
   if (!config.signingSecret || config.signingSecret.length < 32)
     throw new Error('签名密钥至少需要32字符');
@@ -109,6 +110,15 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
     avatars,
     photoUrl: avatarUrl,
   });
+  // 家人头像有独立的本人/管理员权限与文件用途，不能借用宝宝管理员上传入口。
+  const memberAvatars = createMemberAvatars(repo, {
+    avatars,
+    readMember: service.readMember,
+    hash,
+    randomId,
+    now: () => new Date().toISOString(),
+    avatarUrl,
+  });
   // HTTP仅开放这四种动作，完成事务接入及内部链表方法不属于外部调用面。
   const wallActions = new Set([
     'uploadWallPhoto',
@@ -125,6 +135,8 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
     upload: (action, openid, data) => {
       // 原动作先经会话白名单限制，头像仍走管理员专属的原入口。
       if (action === 'uploadAvatar') return uploadAvatar(openid, data);
+      // 分片也保留家人头像目标与上传者绑定，不向照片墙或宝宝头像降级。
+      if (action === 'uploadMemberAvatar') return memberAvatars.upload(openid, data);
       // 完成照的当天待办与上传者绑定不因分片传输而放宽。
       if (action === 'uploadCompletionPhoto') return uploadCompletionPhoto(openid, data);
       // 剩余唯一合法动作是照片墙，家庭/宝宝归属与图片内容仍需原入口确认。
@@ -133,6 +145,30 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
   });
   // 分片只缩小正文，不绕过原HTTP会话鉴权或开放匿名图片写入。
   const chunkActions = new Set(['initImageUpload', 'appendImageChunk', 'finishImageUpload']);
+  /**
+   * 将可信会话交给固定业务入口，未知动作继续由共用服务明确拒绝。
+   * @param {string} openid 已认证身份，禁止由正文覆盖。
+   * @param {string} action 固定上传/资料/照片动作或共用业务名。
+   * @param {object} data 当前业务参数，文件目标仍需各入口独立校验。
+   * @returns {Promise<object>} 实际持久化或查询结果，不生成模拟成功。
+   * @throws {Error} 对应入口的权限、参数和存储错误向HTTP边界传播。
+   */
+  async function callBusiness(openid, action, data) {
+    // 直接入口名称由服务端写死，不根据调用方传来的任意属性执行方法。
+    const direct = {
+      uploadAvatar,
+      uploadCompletionPhoto,
+      completionPhoto,
+      uploadMemberAvatar: memberAvatars.upload,
+      setMemberAvatar: memberAvatars.save,
+    };
+    if (Object.hasOwn(direct, action)) return direct[action](openid, data);
+    // 墙照片和分片各自保留独立白名单及二次归属检查。
+    if (wallActions.has(action)) return photoWall.call(openid, action, data);
+    if (chunkActions.has(action)) return imageUpload.call(openid, action, data);
+    // 常规领域操作继续使用同一事务规则，不绕过历史、邀请和管理员权限。
+    return service.call(openid, action, data);
+  }
   // 频率状态仅在本进程使用，不与家庭成员、业务执行记录混存。
   const counters = new Map();
   /**
@@ -473,23 +509,32 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
       if (!String(request.headers['content-type'] || '').startsWith('application/json'))
         fail('请使用JSON请求');
       if (url.pathname === '/api/login') {
-        // 登录是唯一无需已有会话的写入口，只接受微信短时code换取身份。
+        // 登录是唯一无需已有会话的写入口，身份只能由微信或受信审核认证器提供。
         operation = 'login';
         // 微信换码另设低频IP窗口，不能用大图分片额度放大匿名登录消耗。
         checkRate(request, 'login');
         const data = await readBody(request);
-        // 先约束类型和长度，防止异常输入被带到微信开放接口。
-        if (typeof data.code !== 'string' || data.code.length < 1 || data.code.length > 256)
+        // 默认模式先约束微信code；独立审核认证只能由服务端构造时可信注入。
+        if (
+          !authenticateLogin &&
+          (typeof data.code !== 'string' || data.code.length < 1 || data.code.length > 256)
+        )
           fail('微信登录凭证不正确');
-        // 微信返回的身份是后续会话唯一来源，请求体中的openid不会参与授权。
-        const user = await wechat.exchangeCode(data.code);
+        // 认证器返回的可信身份是会话唯一来源，请求体中的openid不会参与授权。
+        const user = authenticateLogin
+          ? await authenticateLogin(data)
+          : await wechat.exchangeCode(data.code);
         // 行为日志只使用不可逆内部成员ID，避免记录原始微信身份。
         activityActorId = hash(user.openid).slice(0, 32);
         const token = crypto.randomBytes(32).toString('hex');
         // 数据库仅存会话token的哈希，原值只在登录成功时给本人。
         await repo.put('care_sessions', hash(token), {
           openid: user.openid,
-          expiresAt: Date.now() + 7 * 86400000,
+          // 受信审核期限可收紧会话寿命，过期配置轮换后也不能复活旧审核token。
+          expiresAt: Math.min(
+            Date.now() + 7 * 86400000,
+            Number.isFinite(user.expiresAt) ? user.expiresAt : Infinity
+          ),
         });
         // 会话已持久化后才记录登录成功，不能把微信交换成功误当成完整登录成功。
         await activity.record({
@@ -514,23 +559,20 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
       // 只有identity成功后才建立成员桶，任意无效token都不能扩张成员限流Map。
       const mediaAction =
         chunkActions.has(action) ||
-        ['uploadAvatar', 'uploadCompletionPhoto', 'uploadWallPhoto'].includes(action);
+        ['uploadAvatar', 'uploadMemberAvatar', 'uploadCompletionPhoto', 'uploadWallPhoto'].includes(
+          action
+        );
       checkRate(request, mediaAction ? 'media' : 'business', hash(openid).slice(0, 32));
       // 日志动作限制为短字母标识，未知输入不能把用户正文写进运维日志。
       operation = /^[a-zA-Z]{1,24}$/.test(action) ? action : 'unknown';
+      // 审核数据允许完整真实读写，但邀请与订阅会接触真实微信用户，明确关闭。
+      if (
+        config.reviewMode &&
+        ['makeInvite', 'applyInvite', 'previewInvite', 'subscribe'].includes(action)
+      )
+        fail('审核测试环境不开放邀请或微信外发', 403);
       // 文件入口只负责上传和签名，完成状态仍走事务化业务服务。
-      let result =
-        action === 'uploadAvatar'
-          ? await uploadAvatar(openid, data)
-          : action === 'uploadCompletionPhoto'
-            ? await uploadCompletionPhoto(openid, data)
-            : action === 'completionPhoto'
-              ? await completionPhoto(openid, data)
-              : wallActions.has(action)
-                ? await photoWall.call(openid, action, data)
-                : chunkActions.has(action)
-                  ? await imageUpload.call(openid, action, data)
-                  : await service.call(openid, action, data);
+      let result = await callBusiness(openid, action, data);
       if (action === 'snapshot') {
         // 先由service验证当前家庭成员，再为返回给该成员的图片补短链。
         result.home.babies = result.home.babies.map((b) => ({
@@ -540,8 +582,15 @@ function createHttpApplication({ repo, config, wechat = createWechat(config) }) 
               ? avatarUrl(b.avatar.slice(7))
               : '',
         }));
+        // 仅对家人资料实际绑定且用途相符的头像签名，未保存文件不会进入快照。
+        await memberAvatars.attach(result.home);
         // 完成照片还需额外验证任务及日期绑定，不能沿用头像的仅文件名判断。
         await attachCompletionPhotos(result);
+      }
+      if (config.reviewMode && (action === 'snapshot' || action === 'bootstrap')) {
+        // configured=false来自审核禁发策略，不把它描述成已经配置并发送的真实提醒。
+        result.reviewMode = true;
+        result.notificationNotice = '审核隔离环境不发送真实微信通知。';
       }
       // 业务全部成功后才发送ok，异常不会被包装为成功的空结果。
       send(response, 200, { ok: true, data: result });

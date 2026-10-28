@@ -53,7 +53,7 @@ function createService(repo, options) {
 
   /**
    * @param {string} openid 当前微信身份。
-   * @param {object} data 可选date，必须处于家庭创建日至今天之间。
+   * @param {object} data 可选date，必须为今天或过去的有效公历日；创建前仅返回空历史。
    * @returns {Promise<object>} 权限过滤后的配置、日记录和消息结果。
    * @throws {Error} 无权访问或查询日期不合法。
    */
@@ -63,14 +63,13 @@ function createService(repo, options) {
     const today = d.chinaDate(now());
     // 未指定日期只查询服务器认定的今天，不使用手机时区推断历史边界。
     const date = data.date || today;
-    check(
-      d.validDate(date) && date <= today && date >= home.createdDate,
-      '请选择家庭创建之后、今天之前的有效日期'
-    );
+    check(d.validDate(date) && date <= today, '请选择今天或之前的有效日期');
+    // 创建当日也能左右浏览；创建前不读取可能残留的旧日数据，也不制造漏做记录。
+    const beforeCreation = date < home.createdDate;
     // 日记录独立存储，避免家庭使用多年后单个配置文档持续膨胀。
-    const day = await repo.get('care_days', date);
+    const day = beforeCreation ? null : await repo.get('care_days', date);
     // 只由管理员签发一次性邀请，接受即入家，不再读取历史待审核申请。
-    const messages = await repo.list('care_messages', { date }, 100);
+    const messages = beforeCreation ? [] : await repo.list('care_messages', { date }, 100);
     const user = await repo.get('care_users', uid(openid));
     // 只返回本人订阅状态，其他家人的微信身份和授权存量不进入快照。
     // OPENID只在care_users中供服务端发送，返回给家人的成员ID均为哈希。
@@ -89,6 +88,7 @@ function createService(repo, options) {
       })),
       actorId: uid(openid),
       date,
+      beforeCreation,
       today,
       configured: !!templateId,
       subscribed: !!(user && user.subscribed),

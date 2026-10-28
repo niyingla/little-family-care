@@ -11,7 +11,7 @@ const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const uid = (value) => hash(value).slice(0, 32);
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]).toString('base64');
 
-function wallController(files) {
+function wallController(files, reply) {
   const filename = path.resolve(__dirname, '../miniprogram/pages/index/controllers/photo-wall.js');
   const localRequire = createRequire(filename),
     module = { exports: {} };
@@ -26,6 +26,7 @@ function wallController(files) {
         ? {
             call: async (action, data) => {
               calls.push({ action, data });
+              if (reply) return reply(action, data);
               return { photoId: `photo:${calls.length}` };
             },
           }
@@ -45,9 +46,12 @@ function wallController(files) {
     },
   });
   const page = {
+    ...module.exports,
     data: {
       busy: false,
       demo: false,
+      babies: [],
+      wallComposerOpen: false,
       wallDraft: { babyId: 'family', text: '保留草稿', photos: [] },
     },
     setData(value) {
@@ -56,6 +60,139 @@ function wallController(files) {
   };
   return { controller: module.exports, page, calls, selections, toasts, reads: () => reads };
 }
+
+test('照片墙初始发布区收起，展开收起均保留草稿，上传期间不能切换', () => {
+  const indexPath = path.resolve(__dirname, '../miniprogram/pages/index/index.js');
+  let definition;
+  vm.runInNewContext(fs.readFileSync(indexPath, 'utf8'), {
+    require: createRequire(indexPath),
+    Page: (value) => {
+      definition = value;
+    },
+  });
+  assert.equal(definition.data.wallComposerOpen, false);
+  const f = wallController([]);
+  f.page.data.wallComposerBabies = [{ id: 'family', name: '家庭日常' }];
+  f.page.data.wallDraft = {
+    babyId: 'family',
+    text: '保留文字',
+    photos: [{ photoId: 'photo:keep', path: '/keep.png' }],
+  };
+  const draft = f.page.data.wallDraft;
+  f.page.openWallComposer();
+  assert.equal(f.page.data.wallComposerOpen, true);
+  f.page.data.busy = true;
+  f.page.collapseWallComposer();
+  assert.equal(f.page.data.wallComposerOpen, true);
+  f.page.data.busy = false;
+  f.page.collapseWallComposer();
+  assert.equal(f.page.data.wallComposerOpen, false);
+  assert.equal(f.page.data.wallDraft, draft);
+  f.page.data.busy = true;
+  f.page.openWallComposer();
+  assert.equal(f.page.data.wallComposerOpen, false);
+  f.page.data.busy = false;
+  f.page.openWallComposer();
+  assert.equal(f.page.data.wallDraft, draft);
+  assert.equal(f.calls.length, 0);
+});
+
+test('重新进入照片墙默认收起但保留有效范围和草稿，并照常加载列表', async () => {
+  const f = wallController([]);
+  const draft = { babyId: 'family', text: '尚未发布', photos: [{ photoId: 'photo:keep' }] };
+  f.page.data.wallDraft = draft;
+  f.page.data.wallComposerOpen = true;
+  let loads = 0;
+  f.page.loadPhotoWall = async (reset) => {
+    assert.equal(reset, true);
+    loads++;
+  };
+  await f.page.openPhotoWall();
+  assert.equal(f.page.data.wallComposerOpen, false);
+  assert.equal(f.page.data.wallDraft, draft);
+  assert.equal(f.page.data.wallComposerBabies[0].id, 'family');
+  assert.equal(loads, 1);
+});
+
+test('真实发布成功后同时清空草稿并收起，再刷新列表，不改家庭发布归属', async () => {
+  const f = wallController([], async () => ({ postId: 'post:published' }));
+  f.page.data.wallComposerOpen = true;
+  f.page.data.wallDraft = {
+    babyId: 'family',
+    text: '这次成功',
+    photos: [{ photoId: 'photo:keep' }],
+  };
+  let loads = 0;
+  f.page.loadPhotoWall = async () => {
+    loads++;
+    assert.equal(f.page.data.wallComposerOpen, false);
+    assert.equal(f.page.data.wallDraft.photos.length, 0);
+  };
+  await f.page.publishWallPost();
+  assert.equal(f.page.data.wallComposerOpen, false);
+  assert.equal(f.page.data.wallDraft.babyId, 'family');
+  assert.equal(f.page.data.wallDraft.text, '');
+  assert.equal(f.page.data.wallDraft.photos.length, 0);
+  assert.equal(f.page.data.busy, false);
+  assert.equal(f.calls[0].action, 'publishPhotoPost');
+  assert.equal(f.calls[0].data.scope, 'family');
+  assert.equal(f.calls[0].data.babyId, '');
+  assert.equal(loads, 1);
+});
+
+for (const reply of [
+  async () => {
+    throw new Error('发布失败');
+  },
+  async () => ({}),
+]) {
+  test('发布失败或未返回帖子ID时保持展开和完整草稿，不能刷新成假成功', async () => {
+    const f = wallController([], reply);
+    const draft = { babyId: 'family', text: '失败保留', photos: [{ photoId: 'photo:keep' }] };
+    f.page.data.wallDraft = draft;
+    f.page.loadPhotoWall = async () => {
+      throw new Error('失败不得刷新列表');
+    };
+    await f.page.publishWallPost();
+    assert.equal(f.page.data.wallComposerOpen, true);
+    assert.equal(f.page.data.wallDraft, draft);
+    assert.equal(f.page.data.busy, false);
+    assert.equal(f.calls.length, 1);
+    assert.match(f.toasts[0], /失败|未发布成功/);
+  });
+}
+
+test('封面加载只记录当前图片原始比例，竖横图、过期图片与无效尺寸分别处理', () => {
+  const f = wallController([]);
+  f.page.data.view = 'photos';
+  f.page.data.gate = false;
+  const other = { id: 'other', cover: '/other.jpg' };
+  f.page.data.wallPosts = [{ id: 'current', cover: '/current.jpg' }, other];
+  const event = {
+    currentTarget: { dataset: { id: 'current', cover: '/current.jpg' } },
+    detail: { width: 400, height: 600 },
+  };
+  f.page.wallCoverLoaded(event);
+  assert.equal(f.page.data.wallPosts[0].coverRatio, 1.5);
+  assert.equal(f.page.data.wallPosts[1], other);
+  f.page.wallCoverLoaded({ ...event, detail: { width: 800, height: 400 } });
+  assert.equal(f.page.data.wallPosts[0].coverRatio, 0.5);
+  const unchanged = f.page.data.wallPosts;
+  for (const detail of [
+    { width: 0, height: 600 },
+    { width: 400, height: Infinity },
+    { width: -1, height: 1 },
+  ])
+    f.page.wallCoverLoaded({ ...event, detail });
+  f.page.wallCoverLoaded({
+    ...event,
+    currentTarget: { dataset: { id: 'current', cover: '/old.jpg' } },
+  });
+  f.page.data.view = 'today';
+  f.page.wallCoverLoaded(event);
+  assert.equal(f.page.data.wallPosts, unchanged);
+  assert.equal(f.calls.length, 0);
+});
 
 test('照片墙选择允许10MiB图片且每篇仍最多9张，不因放大单图限制增加张数', async () => {
   const files = Array.from({ length: 9 }, (_, index) => ({

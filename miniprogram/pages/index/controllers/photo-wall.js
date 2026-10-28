@@ -88,12 +88,12 @@ module.exports = {
    */
   async navigateTab(event) {
     // 上传或发布尚未结束时不切换数据上下文，避免把照片归到另一位宝宝。
-    if (this.data.busy) return;
+    if (this.data.busy || this.data.refreshing) return;
     if (event.currentTarget.dataset.id === 'photos') await this.openPhotoWall();
     // 原页面的日期、事项筛选与行为埋点仍通过原switchTab执行。
     else {
       this.cancelWallCovers();
-      this.switchTab(event);
+      await this.switchTab(event);
     }
   },
   /**
@@ -122,11 +122,31 @@ module.exports = {
       // 每次重开从全家庭的最新动态开始，浏览筛选与待发布草稿彼此独立。
       wallBabyId: 'all',
       wallBabyIndex: 0,
+      // 每次进入先浏览照片；草稿继续保留，用户主动展开后才恢复编辑界面。
+      wallComposerOpen: false,
       wallComposerIndex: validDraft ? targets.findIndex((target) => target.id === draft.babyId) : 0,
       wallDraft: validDraft ? draft : { babyId: 'family', text: '', photos: [] },
     });
     // 真实动态加载与照片发布是独立动作，打开页面不会上传草稿或发送通知。
     await this.loadPhotoWall(true);
+  },
+  /**
+   * 按用户意图展开照片发布区，不触发选图、上传或清空已有草稿。
+   * @returns {void} 当前有可发布范围且未忙碌时，仅更新本地展开状态。
+   */
+  openWallComposer() {
+    // 上传或发布期间不切换编辑状态；空范围也不能制造可提交的发布入口。
+    if (this.data.busy || !this.data.wallComposerBabies.length) return;
+    this.setData({ wallComposerOpen: true });
+  },
+  /**
+   * 收起照片发布区，保留文字、已上传照片与当前发布范围。
+   * @returns {void} 未忙碌时仅隐藏编辑界面，重新展开仍可继续本次草稿。
+   */
+  collapseWallComposer() {
+    // 不清空草稿或删文件，收起只影响显示；正在提交时等待原操作结束。
+    if (this.data.busy) return;
+    this.setData({ wallComposerOpen: false });
   },
   /**
    * 加载照片墙的一页真实历史，筛选空页仍保留继续翻页的游标。
@@ -224,6 +244,28 @@ module.exports = {
     for (const task of this._wallCoverQueue || []) task.resolve();
     this._wallCoverQueue = [];
     this.setData({ wallLoading: false });
+  },
+  /**
+   * 根据当前封面加载结果记录原始宽高比，避免固定高度裁剪竖图。
+   * @param {object} event image加载事件，detail含正数width/height，dataset含动态id与cover路径。
+   * @returns {void} 仅更新仍在照片墙显示的同一封面比例，不读取或改写图片文件。
+   */
+  wallCoverLoaded(event) {
+    // 离开页面或失去家庭访问权后，迟到的图片回调不再修改照片墙状态。
+    if (this.data.view !== 'photos' || this.data.gate) return;
+    const { id, cover } = event.currentTarget.dataset;
+    const { width, height } = event.detail;
+    // 原生组件必须给出有限正尺寸，错误解码不能制造无限高度或零高占位。
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+    const ratio = height / width;
+    const current = this.data.wallPosts.find((post) => post.id === id && post.cover === cover);
+    // 动态ID与本地路径一起核对，旧封面回调不能覆盖已刷新图片的布局。
+    if (!current || current.coverRatio === ratio) return;
+    this.setData({
+      wallPosts: this.data.wallPosts.map((post) =>
+        post === current ? { ...post, coverRatio: ratio } : post
+      ),
+    });
   },
   /**
    * 沙盒缓存被淘汰或图片暂不可用时恢复可点击加载入口。
@@ -370,7 +412,8 @@ module.exports = {
     if (this.data.busy || this.data.demo) return;
     const draft = this.data.wallDraft;
     if (!draft.photos.length) return;
-    this.setData({ busy: true });
+    // 明确发布成功之前保持编辑区展开，失败后可直接检查原草稿并重试。
+    this.setData({ busy: true, wallComposerOpen: true });
     try {
       // 只提交照片标识和文字；发布者、时间及权限由服务端会话决定。
       const result = await api.call('publishPhotoPost', {
@@ -380,7 +423,10 @@ module.exports = {
       });
       if (!result || !result.postId) throw new Error('照片未发布成功，请重试');
       // 上传成功不等于发布成功；仅在取得真实帖子ID后丢弃本地输入。
-      this.setData({ wallDraft: { babyId: draft.babyId, text: '', photos: [] } });
+      this.setData({
+        wallComposerOpen: false,
+        wallDraft: { babyId: draft.babyId, text: '', photos: [] },
+      });
       wx.showToast({ title: '家庭照片已发布', icon: 'none' });
       // 列表失败由加载方法独立提示，不能把已提交动态重新解释成发布失败再重发。
       await this.loadPhotoWall(true);

@@ -46,6 +46,8 @@ async function createRuntime(env = process.env) {
     // 消息阶段随部署环境显式选择，供HTTP请求与独立扫描使用同一配置。
     messageStage: env.MESSAGE_STAGE || 'trial',
     signingSecret: env.SIGNING_SECRET || '',
+    // 审核凭据只读取服务端的盐与摘要，绝不写进小程序配置或启动日志。
+    reviewAccess: env.REVIEW_ACCESS || '',
     // 统一去掉末尾斜杠，避免生成公开入口或私有资源地址时重复分隔符。
     publicOrigin: String(env.PUBLIC_ORIGIN || '').replace(/\/$/, ''),
   };

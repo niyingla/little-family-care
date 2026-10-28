@@ -65,6 +65,43 @@ async function init(
   });
 }
 
+test('家人头像分片绑定目标，家人只能本人、管理员可替家人，目标移除后逐片拒绝', async (t) => {
+  const f = await fixture(t),
+    encoded = Buffer.alloc(60000, 7).toString('base64');
+  await assert.rejects(
+    init(f, encoded, 'dad', 'uploadMemberAvatar', { memberId: uid('owner') }),
+    /本人|管理员|权限/
+  );
+  const session = await init(f, encoded, 'dad', 'uploadMemberAvatar', { memberId: uid('dad') });
+  assert.deepEqual(
+    await f.manager.call('dad', 'appendImageChunk', {
+      ...session,
+      index: 0,
+      chunk: encoded.slice(0, CHUNK),
+    }),
+    { accepted: true }
+  );
+  const home = await f.repo.get('care_home', 'home');
+  home.members[1].active = false;
+  await f.repo.put('care_home', 'home', home);
+  await assert.rejects(
+    f.manager.call('owner', 'initImageUpload', {
+      action: 'uploadMemberAvatar',
+      metadata: { memberId: uid('dad') },
+      totalLength: encoded.length,
+      totalParts: 2,
+    })
+  );
+  await assert.rejects(
+    f.manager.call('dad', 'appendImageChunk', { ...session, index: 1, chunk: encoded.slice(CHUNK) })
+  );
+  home.members[1].active = true;
+  await f.repo.put('care_home', 'home', home);
+  assert.ok(
+    (await init(f, encoded, 'owner', 'uploadMemberAvatar', { memberId: uid('dad') })).uploadId
+  );
+});
+
 test('真实SQLite会话可乱序追加，同片幂等、冲突拒绝，缺块不执行原上传，finish重试不重复文件', async (t) => {
   const f = await fixture(t),
     encoded = Buffer.alloc(60000, 7).toString('base64');

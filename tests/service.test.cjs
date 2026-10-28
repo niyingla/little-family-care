@@ -81,6 +81,21 @@ async function addFamilyMember(f, identity, name = identity) {
   return hash(identity).slice(0, 32);
 }
 
+test('创建当天也能向前浏览空白历史，创建前不泄露旧日记录且未来仍拒绝', async () => {
+  const f = fixture();
+  await setup(f);
+  await f.repo.put('care_days', '2026-10-27', { date: '2026-10-27', events: [{ legacy: true }] });
+  const snapshot = await f.service.call('owner', 'snapshot', { date: '2026-10-27' });
+  assert.equal(snapshot.date, '2026-10-27');
+  assert.equal(snapshot.beforeCreation, true);
+  assert.equal(snapshot.day, null);
+  assert.deepEqual(snapshot.messages, []);
+  assert.equal((await f.repo.get('care_days', '2026-10-27')).events[0].legacy, true);
+  await assert.rejects(f.service.call('guest', 'snapshot', { date: '2026-10-27' }), /无权/);
+  await assert.rejects(f.service.call('owner', 'snapshot', { date: '2026-10-29' }), /日期/);
+  await assert.rejects(f.service.call('owner', 'snapshot', { date: '2026-02-30' }), /日期/);
+});
+
 test('家人可独立关注与取消，完成后只通知仍关注的有效家人，执行者本人不重复通知', async () => {
   const f = fixture();
   const home = await setup(f);

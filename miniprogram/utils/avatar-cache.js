@@ -4,9 +4,10 @@ const { MAX_IMAGE_BYTES } = require('./media-policy');
  * 将私有头像分段下载到小程序沙盒；避免公开图片域名及云托管响应大小限制。
  * @param {Function} request 统一传输入口，支持GET、Range及ArrayBuffer响应。
  * @param {object} platform 微信API对象，提供文件系统及USER_DATA_PATH。
+ * @param {object} options 受控review路由及family/review数字会话namespace，不接受图片指定目录。
  * @returns {Function} load(route)返回本地路径；load.pin(routes)替换最多9张当前预览保护集合。
  */
-function createAvatarCache(request, platform) {
+function createAvatarCache(request, platform, options = {}) {
   // 缓存保存下载Promise，同一头像并发加载时共享一次私有下载请求。
   const cache = new Map();
   // 固定集合只代表当前预览批次，切换批次后旧图片重新参与LRU淘汰。
@@ -14,7 +15,13 @@ function createAvatarCache(request, platform) {
   let capacityChanged = null,
     wakeCapacity = null;
   let initialized = false;
-  const prefix = 'care-private-avatar-';
+  const review = options.review === true;
+  const namespace = options.namespace || '';
+  if (namespace && !/^(family|review)-\d+$/.test(namespace)) throw new Error('图片会话标识不正确');
+  // 模式切换不复用本机文件名，同一随机图片ID也不能在两个身份间命中旧缓存。
+  const prefix = namespace ? `care-private-${namespace}-` : 'care-private-avatar-';
+  const ownedFile = new RegExp(`^${prefix}[a-f0-9]{32}\\.(png|jpg)$`);
+  let disposed = false;
   // 下载中条目也占预算，不能通过删除进行中的Promise假装释放容量。
   const capacity = 20;
   // 图片大小与上传共享上限；每次回包独立限制为512KiB，不能一次请求全部剩余图片。
@@ -31,7 +38,7 @@ function createAvatarCache(request, platform) {
     // 只清理本模块生成且命名严格匹配的缓存，不触碰用户其他沙盒文件。
     const files = fs.readdirSync(platform.env.USER_DATA_PATH);
     for (const file of files)
-      if (/^care-private-avatar-[a-f0-9]{32}\.(png|jpg)$/.test(file)) {
+      if (ownedFile.test(file)) {
         try {
           fs.unlinkSync(platform.env.USER_DATA_PATH + '/' + file);
         } catch (_) {
@@ -49,12 +56,16 @@ function createAvatarCache(request, platform) {
    * @throws {Error} 网络失败、非206响应或分段完整性校验失败时拒绝使用。
    */
   async function readPart(route, start, end) {
+    // 退出后的旧队列即使尚未发起分段，也不能继续下载原身份的私有资料。
+    if (disposed) throw new Error('图片会话已结束，请重新打开');
     // 保留调用方私有路由的签名，不另建可绕过授权的公开图片请求。
     const response = await request(route, undefined, '', {
       method: 'GET',
       responseType: 'arraybuffer',
       header: { Range: `bytes=${start}-${end}` },
     });
+    // 在途响应回来时再次检查，避免退出后把已下载内容继续组装或写入沙盒。
+    if (disposed) throw new Error('图片会话已结束，请重新打开');
     // HTTP响应头大小写不固定，不能因代理改写头名而跳过范围校验。
     const headers = response.header || {};
     const key = Object.keys(headers).find((name) => name.toLowerCase() === 'content-range');
@@ -89,7 +100,11 @@ function createAvatarCache(request, platform) {
    */
   function filenameFor(route) {
     // 只接受应用生成的随机文件名，禁止把任意路由作为本地文件路径。
-    const match = /^\/api\/avatar\/([a-f0-9]{32}\.(png|jpg))\?/.exec(route || '');
+    const pattern = review
+      ? /^\/review\/api\/avatar\/([a-f0-9]{32}\.(png|jpg))\?/
+      : /^\/api\/avatar\/([a-f0-9]{32}\.(png|jpg))\?/;
+    // 审核地址原样发送到审核入口，不允许通过缓存层剥离命名空间。
+    const match = pattern.exec(route || '');
     if (!match) throw new Error('图片地址不正确');
     return match[1];
   }
@@ -170,6 +185,13 @@ function createAvatarCache(request, platform) {
     await new Promise((resolve, reject) =>
       fs.writeFile({ filePath, data: content.buffer, success: resolve, fail: reject })
     );
+    if (disposed) {
+      // 写盘期间退出时清掉刚落地的旧会话文件，不能在clear之后重新遗留私有图片。
+      try {
+        fs.unlinkSync(filePath);
+      } catch (_) {}
+      throw new Error('图片会话已结束，请重新打开');
+    }
     // 容量在下载开始前已预留，写盘完成不再淘汰本次刚返回的预览图片。
     return filePath;
   }
@@ -180,6 +202,8 @@ function createAvatarCache(request, platform) {
    * @throws {Error} 路由、下载完整性或本地文件写入失败时拒绝加载。
    */
   async function load(route) {
+    // 被清理的读取器不能重新启用，调用者必须为新身份创建独立实例。
+    if (disposed) throw new Error('图片会话已结束，请重新打开');
     const filename = filenameFor(route);
     // 先预留不超过20项的容量；未完成请求不可被其他新封面挤出缓存。
     while (!cache.has(filename) && cache.size >= capacity) {
@@ -187,6 +211,7 @@ function createAvatarCache(request, platform) {
       if (evictOne(platform.getFileSystemManager())) continue;
       // 唤醒不代表获得名额；下一轮还需检查是否被其他请求占用或已下载同图。
       await waitForCapacity();
+      if (disposed) throw new Error('图片会话已结束，请重新打开');
     }
     if (cache.has(filename)) {
       // 命中包括尚未完成的请求，移到队尾后仍复用原Promise，避免重复写文件。
@@ -221,12 +246,38 @@ function createAvatarCache(request, platform) {
    * @throws {Error} 不是数组、超过9张或任一路由不合法时保留原保护集合。
    */
   load.pin = function pin(routes) {
+    // 退出后不再为旧预览保留任何文件容量。
+    if (disposed) throw new Error('图片会话已结束，请重新打开');
     // 先校验整批再替换，坏路由不能导致前半批保护生效、后半批丢失。
     if (!Array.isArray(routes) || routes.length > 9) throw new Error('一次最多预览9张图片');
     const next = new Set(routes.map(filenameFor));
     pinned = next;
     // 切换批次后旧预览可参与淘汰，唤醒此前因容量保护而等待的封面下载。
     signalCapacity();
+  };
+  /**
+   * 结束当前图片会话并清理仅由本实例命名的私有文件。
+   * @returns {void} 等待队列被唤醒并拒绝，旧下载完成后不能再写回可用文件。
+   */
+  load.clear = function clear() {
+    // 先使所有在途分段失效，再清缓存；不能等磁盘清理结束后才阻止旧请求。
+    disposed = true;
+    // 解除整组保护并唤醒容量等待者；醒来后仍因实例失效而拒绝，不转给新身份续读。
+    pinned = new Set();
+    cache.clear();
+    signalCapacity();
+    try {
+      const fs = platform.getFileSystemManager();
+      // 清理严格限制在当前会话前缀，不触碰其他模式缓存或用户自己保存的图片。
+      for (const file of fs.readdirSync(platform.env.USER_DATA_PATH))
+        if (ownedFile.test(file)) {
+          try {
+            fs.unlinkSync(platform.env.USER_DATA_PATH + '/' + file);
+          } catch (_) {}
+        }
+    } catch (_) {
+      // 系统已回收文件时仍保持实例失效，新会话也不会复用此命名空间。
+    }
   };
   return load;
 }

@@ -3,7 +3,21 @@
     <view class="section-title">家庭照片墙 ♡</view>
     <text class="muted">一起珍藏小美好</text>
   </view>
-  <view class="card" wx:if="{{wallComposerBabies.length}}">
+  <button
+    wx:if="{{wallComposerBabies.length && !wallComposerOpen}}"
+    class="soft wall-publish-entry"
+    bindtap="openWallComposer"
+    disabled="{{busy}}"
+  >
+    ＋ 发布照片
+  </button>
+  <view class="card wall-composer" wx:if="{{wallComposerBabies.length && wallComposerOpen}}">
+    <view class="sheet-heading">
+      <view class="section-title">发布照片</view>
+      <button class="text-button" size="mini" bindtap="collapseWallComposer" disabled="{{busy}}">
+        收起
+      </button>
+    </view>
     <view wx:if="{{demo}}" class="notice">
       本地体验可查看发布界面；加入正式家庭后即可拍照、选图和发布。
     </view>
@@ -32,9 +46,10 @@
     <view style="display: flex; flex-wrap: wrap; gap: 12rpx">
       <view wx:for="{{wallDraft.photos}}" wx:key="photoId" style="width: 30%">
         <image
+          class="wall-draft-image"
           src="{{item.path}}"
-          mode="aspectFill"
-          style="width: 100%; height: 160rpx; border-radius: 16rpx"
+          mode="aspectFit"
+          style="width: 100%; height: 160rpx; border-radius: 16rpx; background: #f6f2e9"
         />
         <button
           class="text-button"
@@ -98,14 +113,21 @@
       {{post.timeLabel}} {{post.source === 'completion' ? '· 完成照护时记录' : ''}}
     </view>
     <view style="white-space: pre-wrap; line-height: 1.7; margin: 16rpx 0">{{post.text}}</view>
-    <view wx:if="{{post.cover}}" style="position: relative; margin-top: 16rpx">
+    <view
+      wx:if="{{post.cover}}"
+      class="wall-cover-frame"
+      style="position: relative; margin-top: 16rpx; height: 0; padding-top: {{(post.coverRatio || 1) * 100}}%"
+    >
       <image
+        class="wall-cover"
         src="{{post.cover}}"
-        mode="aspectFill"
-        style="width: 100%; height: 420rpx; border-radius: 20rpx"
+        mode="aspectFit"
+        style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 20rpx"
         data-id="{{post.id}}"
+        data-cover="{{post.cover}}"
         data-index="0"
         bindtap="previewWallPost"
+        bindload="wallCoverLoaded"
         binderror="wallCoverError"
       />
       <view
@@ -124,12 +146,13 @@
     </view>
     <view wx:elif="{{post.localImages.length}}" style="display: flex; flex-wrap: wrap; gap: 12rpx">
       <image
+        class="wall-grid-image"
         wx:for="{{post.localImages}}"
         wx:for-item="picture"
         wx:key="*this"
         src="{{picture}}"
-        mode="aspectFill"
-        style="width: 30%; height: 180rpx; border-radius: 16rpx"
+        mode="aspectFit"
+        style="width: 30%; height: 180rpx; border-radius: 16rpx; background: #f6f2e9"
         data-id="{{post.id}}"
         data-index="{{index}}"
         bindtap="previewWallPost"

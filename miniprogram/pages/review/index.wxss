@@ -1,0 +1,70 @@
+page {
+  background: #fcf8f1;
+  color: #4c4138;
+}
+.review-page {
+  padding: 70rpx 36rpx;
+}
+.review-card {
+  padding: 42rpx 34rpx;
+  background: #fffdf8;
+  border: 1rpx solid #eadfd1;
+  border-radius: 30rpx;
+}
+.review-label {
+  display: inline-block;
+  padding: 10rpx 18rpx;
+  border-radius: 16rpx;
+  background: #f5e3d2;
+  color: #7d4e35;
+  font-size: 24rpx;
+}
+.review-title {
+  margin: 28rpx 0 18rpx;
+  font-size: 42rpx;
+  font-weight: 600;
+}
+.review-note,
+.review-tip {
+  font-size: 26rpx;
+  color: #7e746a;
+  line-height: 1.7;
+}
+.field-label {
+  margin-top: 30rpx;
+  margin-bottom: 12rpx;
+  font-size: 28rpx;
+}
+.review-input {
+  box-sizing: border-box;
+  height: 92rpx;
+  padding: 20rpx;
+  background: #ffffff;
+  border: 1rpx solid #ded2c4;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+}
+.review-error {
+  margin-top: 24rpx;
+  color: #a84d44;
+  font-size: 26rpx;
+  line-height: 1.6;
+}
+.review-submit {
+  margin-top: 36rpx;
+  background: #bc7d5a;
+  color: #ffffff;
+  border-radius: 20rpx;
+  font-size: 30rpx;
+}
+.review-return {
+  margin-top: 18rpx;
+  color: #705c4d;
+  background: #f2eadd;
+  border-radius: 20rpx;
+  font-size: 28rpx;
+}
+.review-tip {
+  margin-top: 28rpx;
+  font-size: 24rpx;
+}

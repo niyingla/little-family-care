@@ -32,8 +32,15 @@
   </view>
   <view class="card">
     <view wx:for="{{members}}" wx:key="id" class="member-row">
-      <view class="member-avatar">{{item.name}}</view>
-      <view class="member-name">
+      <image
+        wx:if="{{item.picture}}"
+        class="member-avatar"
+        src="{{item.picture}}"
+        mode="aspectFill"
+        style="flex-shrink: 0"
+      />
+      <view wx:else class="member-avatar" style="flex-shrink: 0">{{item.initial}}</view>
+      <view class="member-name" style="min-width: 0">
         <view>{{item.name}}</view>
         <view wx:if="{{item.relation}}" class="muted footnote">{{item.relation}}</view>
         <view wx:if="{{item.birthday}}" class="muted footnote">
@@ -42,8 +49,19 @@
         </view>
         <view wx:else class="muted footnote">生日未填写</view>
         <button
+          wx:if="{{item.canEditAvatar}}"
+          class="text-button"
+          size="mini"
+          data-id="{{item.id}}"
+          bindtap="chooseMemberAvatar"
+          disabled="{{busy || demo}}"
+        >
+          修改头像
+        </button>
+        <button
           wx:if="{{item.canEditBirthday}}"
           class="text-button"
+          size="mini"
           data-id="{{item.id}}"
           bindtap="openBirthday"
           disabled="{{busy}}"
@@ -51,10 +69,11 @@
           {{item.birthday ? '编辑生日' : '添加生日'}}
         </button>
       </view>
-      <text wx:if="{{index === 0}}" class="owner-label">管理员</text>
+      <text wx:if="{{item.isOwner}}" class="owner-label">管理员</text>
       <button
         wx:elif="{{owner}}"
         class="text-button muted"
+        size="mini"
         data-id="{{item.id}}"
         bindtap="removeMember"
       >
