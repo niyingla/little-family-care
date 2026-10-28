@@ -106,3 +106,72 @@ test('服务器HTTP入口验证微信登录和会话，拒绝伪造身份及直�
   const wrongSession = await post('/api/call', { action: 'snapshot' }, 'b'.repeat(64));
   assert.equal(wrongSession.status, 401);
 });
+
+test('数据库头像在应用重建后仍可读取，分段响应满足云托管大小限制', async (t) => {
+  const repo = createSQLiteRepository(':memory:');
+  const config = {
+    dataDir: path.join(os.tmpdir(), 'unused-avatar-directory'),
+    avatarStorage: 'database',
+    ownerOpenId: 'owner',
+    signingSecret: 's'.repeat(64),
+    publicOrigin: '',
+    fields: {},
+  };
+  const wechat = { exchangeCode: async () => ({ openid: 'owner' }), sendMessage: async () => {} };
+  let app = createHttpApplication({ repo, config, wechat });
+  const listen = async () => {
+    await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+    return `http://127.0.0.1:${app.server.address().port}`;
+  };
+  let origin = await listen();
+  t.after(async () => {
+    await app.close();
+    await repo.close();
+  });
+  const post = async (action, data, token) => {
+    const response = await fetch(origin + '/api/call', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, data }),
+    });
+    return response.json();
+  };
+  const response = await fetch(origin + '/api/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code: 'owner-code' }),
+  });
+  const token = (await response.json()).data.token;
+  await post('createHome', { name: '家长' }, token);
+  const image = Buffer.alloc(1024 * 1024, 7);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(image);
+  const uploaded = await post('uploadAvatar', { base64: image.toString('base64') }, token);
+  assert.equal(uploaded.ok, true);
+  assert.ok(await repo.get('care_avatar_blobs', uploaded.data.fileID.slice(7)));
+  await post('saveBaby', { name: '宝宝', avatar: uploaded.data.fileID }, token);
+  // 重建应用而非复用内存缓存；数据必须从持久仓库重新读取。
+  await app.close();
+  app = createHttpApplication({ repo, config, wechat });
+  origin = await listen();
+  const snapshot = await post('snapshot', {}, token);
+  const route = snapshot.data.home.babies[0].avatarUrl;
+  assert.match(route, /^\/api\/avatar\//);
+  const parts = [];
+  for (const range of ['bytes=0-524287', 'bytes=524288-1048575']) {
+    const part = await fetch(origin + route, { headers: { Range: range } });
+    assert.equal(part.status, 206);
+    assert.match(part.headers.get('content-range'), /\/1048576$/);
+    const buffer = Buffer.from(await part.arrayBuffer());
+    assert.ok(buffer.length < 1000 * 1024);
+    parts.push(buffer);
+  }
+  assert.deepEqual(Buffer.concat(parts), image);
+  assert.equal(
+    (await fetch(origin + route, { headers: { Range: 'bytes=1048576-2097151' } })).status,
+    416
+  );
+  assert.equal(
+    (await fetch(origin + route.replace(/signature=.{64}/, 'signature=' + '0'.repeat(64)))).status,
+    403
+  );
+});

@@ -25,15 +25,32 @@
   </view>
   <view wx:if="{{!babies.length}}" class="empty">先给宝宝取个名字、选张头像吧 ♡</view>
   <view class="section-row">
-    <view class="section-title">一起照顾的家人</view>
-    <button wx:if="{{owner}}" class="small-primary" bindtap="makeInvite" disabled="{{busy}}">
+    <view class="section-title">家人列表 · {{members.length}}人</view>
+    <button wx:if="{{owner}}" class="small-primary" bindtap="openInvite" disabled="{{busy}}">
       邀请家人
     </button>
   </view>
   <view class="card">
     <view wx:for="{{members}}" wx:key="id" class="member-row">
       <view class="member-avatar">{{item.name}}</view>
-      <view class="member-name">{{item.name}}</view>
+      <view class="member-name">
+        <view>{{item.name}}</view>
+        <view wx:if="{{item.relation}}" class="muted footnote">{{item.relation}}</view>
+        <view wx:if="{{item.birthday}}" class="muted footnote">
+          {{item.birthday.calendar === 'lunar' ? '农历' : '公历'}}{{item.birthday.leap ? '闰' :
+          ''}}{{item.birthday.month}}月{{item.birthday.day}}日
+        </view>
+        <view wx:else class="muted footnote">生日未填写</view>
+        <button
+          wx:if="{{item.canEditBirthday}}"
+          class="text-button"
+          data-id="{{item.id}}"
+          bindtap="openBirthday"
+          disabled="{{busy}}"
+        >
+          {{item.birthday ? '编辑生日' : '添加生日'}}
+        </button>
+      </view>
       <text wx:if="{{index === 0}}" class="owner-label">管理员</text>
       <button
         wx:elif="{{owner}}"
@@ -45,21 +62,7 @@
       </button>
     </view>
     <view class="muted footnote">
-      仅管理员能邀请和审核。邀请被转发，也需要管理员确认后才能访问。
-    </view>
-  </view>
-  <view wx:if="{{owner && requests.length}}" class="card">
-    <view class="section-title">等你确认的家人</view>
-    <view wx:for="{{requests}}" wx:key="id" class="request-row">
-      <text>{{item.name}}</text>
-      <view class="request-buttons">
-        <button class="text-button" data-id="{{item.id}}" data-approve="yes" bindtap="review">
-          同意
-        </button>
-        <button class="text-button muted" data-id="{{item.id}}" data-approve="no" bindtap="review">
-          拒绝
-        </button>
-      </view>
+      只有管理员能邀请和移除家人。邀请卡片24小时有效，仅供一人加入；移除后需管理员重新邀请。
     </view>
   </view>
   <view class="card">
@@ -79,13 +82,21 @@
     <view class="section-title">给我发微信提醒</view>
     <view class="muted">
       {{configured ? (subscribed ? '已记录你的授权，发送次数以微信可用额度为准。' :
-      '开启后，可在有授权额度时接收任务提醒。') : '尚未接入真实微信消息模板。'}}
+      '开启后，可在有授权额度时接收任务及生日提醒。') : '尚未接入真实微信消息模板。'}}
     </view>
     <button class="soft" bindtap="subscribe">
-      {{configured ? '订阅任务提醒' : '查看提醒说明'}}
+      {{configured ? '订阅家庭提醒' : '查看提醒说明'}}
     </button>
     <view class="muted footnote">
       自动提醒约每5分钟检查一次；家人也可手动提醒。一次性订阅不是永久授权，普通小程序无法保证无限次自动推送。
+      关注事项完成后通知关注者；生日提前3天上午10点起提醒所有家人，均需各自有可用授权。
+    </view>
+  </view>
+  <view wx:if="{{birthdayMessages.length}}" class="card message-card">
+    <view class="section-title">今天的生日提醒</view>
+    <view wx:for="{{birthdayMessages}}" wx:key="id" class="message-line">
+      <text>{{item.title}}</text>
+      <text class="muted">{{item.label}}</text>
     </view>
   </view>
 </template>

@@ -1,3 +1,4 @@
+<import src="birthdays.wxml" />
 <template name="forms">
   <view class="modal-backdrop" bindtap="closeModal">
     <view class="sheet" catchtap="noop">
@@ -5,15 +6,15 @@
       <view class="sheet-heading">
         <view class="section-title">
           {{modal === 'task' ? (form.taskId ? '调整这件小事' : '添加一件小事') : modal === 'baby' ?
-          '宝宝的小档案' : '邀请家人一起照顾'}}
+          '宝宝的小档案' : modal === 'birthday' ? '记住家人的生日' : '邀请家人一起照顾'}}
         </view>
         <button class="close-button" bindtap="closeModal">×</button>
       </view>
       <scroll-view class="sheet-body" scroll-y>
         <block wx:if="{{modal === 'task'}}">
           <view class="notice">
-            {{form.scope === 'family' ? '家庭事项 · 不关联宝宝，由家人一起分担。' : '宝宝事项 ·
-            关联具体宝宝，独立记录完成情况。'}}
+            <text wx:if="{{form.scope === 'family'}}">家庭事项 · 不关联宝宝，由家人一起分担。</text>
+            <text wx:else>宝宝事项 · 关联具体宝宝，独立记录完成情况。</text>
           </view>
           <view class="form-label">需要做什么</view>
           <input
@@ -74,7 +75,7 @@
               {{item.label}}
             </view>
           </view>
-          <view class="form-label">从哪天开始</view>
+          <view class="form-label">{{form.frequency === 'once' ? '执行日期' : '从哪天开始'}}</view>
           <picker
             mode="date"
             value="{{form.startDate}}"
@@ -86,7 +87,10 @@
               <text>⌄</text>
             </view>
           </picker>
-          <view class="form-label">由谁负责</view>
+          <view class="form-label">
+            由谁负责
+            <text class="muted">选填</text>
+          </view>
           <picker
             range="{{taskMembers}}"
             range-key="name"
@@ -116,7 +120,10 @@
           <button wx:if="{{form.executionTime}}" class="text-button" bindtap="clearExecutionTime">
             清除执行时间
           </button>
-          <view class="form-label">超时后通知谁</view>
+          <view class="form-label">
+            超时后通知谁
+            <text class="muted">选填</text>
+          </view>
           <picker
             range="{{notifyOptions}}"
             range-key="name"
@@ -166,14 +173,52 @@
             保存宝宝资料
           </button>
         </block>
+        <block wx:elif="{{modal === 'birthday'}}">
+          <template is="birthdayEditor" data="{{birthdayForm,birthdayMonths,birthdayDays,busy}}" />
+        </block>
         <block wx:else>
           <view class="invite-art">♡</view>
-          <view class="muted">
-            邀请仅供一人申请，24小时有效。对方申请后，还需要你在家庭页确认。
-          </view>
-          <view class="invite-code">{{inviteToken}}</view>
-          <button class="primary" open-type="share">发邀请给家人</button>
-          <button class="soft" bindtap="copyInvite">复制邀请码</button>
+          <view class="muted">只有你能邀请家人。卡片24小时有效，仅供一人加入，无需再次审核。</view>
+          <block wx:if="{{!inviteToken}}">
+            <view class="form-label">
+              家人的称呼
+              <text class="muted">选填</text>
+            </view>
+            <input
+              class="field"
+              maxlength="12"
+              placeholder="例如：晓红"
+              value="{{inviteForm.name}}"
+              data-field="inviteForm.name"
+              bindinput="input"
+            />
+            <view class="form-label">
+              家庭身份
+              <text class="muted">选填</text>
+            </view>
+            <input
+              class="field"
+              maxlength="12"
+              placeholder="例如：妈妈、爸爸、奶奶、爷爷或其他"
+              value="{{inviteForm.relation}}"
+              data-field="inviteForm.relation"
+              bindinput="input"
+            />
+            <view class="notice">
+              你可以预先填写，对方打开邀请后确认或修改。家庭身份仅作展示，管理权限仍由你掌握。
+            </view>
+            <button class="primary" bindtap="makeInvite" disabled="{{busy}}" loading="{{busy}}">
+              生成邀请
+            </button>
+          </block>
+          <block wx:else>
+            <view wx:if="{{inviteForm.name || inviteForm.relation}}" class="notice">
+              <view wx:if="{{inviteForm.name}}">家人称呼：{{inviteForm.name}}</view>
+              <view wx:if="{{inviteForm.relation}}">家庭身份：{{inviteForm.relation}}</view>
+              <view>对方加入后，称呼和家庭身份会出现在家人列表。</view>
+            </view>
+            <button class="primary" open-type="share">发邀请给家人</button>
+          </block>
         </block>
       </scroll-view>
     </view>

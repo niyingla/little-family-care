@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "3.0.1"
+    "wx-server-sdk": "3.0.1",
+    "lunar-javascript": "1.7.7"
   }
 }

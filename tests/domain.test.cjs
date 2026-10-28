@@ -189,6 +189,55 @@ test('没有家庭成员的名字或无效日期、间隔、星期不得创建�
     assert.throws(() => task(home(), extra));
   }
 });
+
+test('负责人和提醒人可分别留空，显式清空提醒人不重新回退负责人', () => {
+  const empty = task(home(), { assigneeId: '', notifyMemberId: '' });
+  const row = d.rowsForDate(empty, null, '2026-10-28')[0];
+  assert.equal(row.assigneeId, '');
+  assert.equal(row.assigneeName, '');
+  assert.equal(row.notifyMemberId, '');
+  assert.equal(row.notifyMemberName, '');
+  assert.equal(
+    d.transition(
+      empty,
+      null,
+      'dad',
+      'complete',
+      { taskId: row.id, date: '2026-10-28', done: true, expectedRevision: 0 },
+      now,
+      id
+    ).day.records[row.id].done,
+    true
+  );
+  const assigned = task(home(), { assigneeId: 'dad', notifyMemberId: '' });
+  assert.equal(d.rowsForDate(assigned, null, '2026-10-28')[0].notifyMemberId, '');
+  assert.throws(
+    () =>
+      d.transition(
+        assigned,
+        null,
+        'owner',
+        'nudge',
+        { taskId: assigned.tasks[0].id, date: '2026-10-28' },
+        now,
+        id
+      ),
+    /通知/
+  );
+  const notifyOnly = task(home(), { assigneeId: '', notifyMemberId: 'owner' });
+  assert.equal(
+    d.transition(
+      notifyOnly,
+      null,
+      'dad',
+      'nudge',
+      { taskId: notifyOnly.tasks[0].id, date: '2026-10-28' },
+      now,
+      id
+    ).result.recipientId,
+    'owner'
+  );
+});
 test('移除执行人后任务标记为待分配，不再向被移除的人发提醒', () => {
   const h = task(home());
   const removed = d.transition(h, null, 'owner', 'removeMember', { memberId: 'dad' }, now, id);
@@ -237,6 +286,24 @@ test('仅一次的家庭事项只出现在指定日期，不变成每天重复',
   assert.equal(d.rowsForDate(h, null, '2026-10-28').length, 0);
   assert.equal(d.rowsForDate(h, null, '2026-10-29').length, 1);
   assert.equal(d.rowsForDate(h, null, '2026-10-30').length, 0);
+});
+
+test('未来具体日期与时间可提前安排，仅在指定当天进入待办清单', () => {
+  const planned = task(home(), {
+    frequency: 'once',
+    startDate: '2026-11-04',
+    executionTime: '10:00',
+    title: '打疫苗',
+    assigneeId: '',
+    notifyMemberId: '',
+  });
+  assert.equal(d.rowsForDate(planned, null, '2026-10-28').length, 0);
+  assert.equal(d.rowsForDate(planned, null, '2026-11-03').length, 0);
+  const due = d.rowsForDate(planned, null, '2026-11-04');
+  assert.equal(due.length, 1);
+  assert.equal(due[0].title, '打疫苗');
+  assert.equal(due[0].executionTime, '10:00');
+  assert.equal(d.rowsForDate(planned, null, '2026-11-05').length, 0);
 });
 
 test('重要事项置顶优先于时间排序，取消置顶恢复原顺序且不改执行周期', () => {

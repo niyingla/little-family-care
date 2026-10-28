@@ -9,10 +9,12 @@
     "care_home",
     "care_days",
     "care_invites",
-    "care_requests",
     "care_users",
     "care_messages",
-    "care_files"
+    "care_files",
+    "care_activity",
+    "care_photo_posts",
+    "care_photo_feed"
   ],
   "databaseClientRules": { "read": false, "write": false },
   "storageClientRules": { "read": false, "write": false },
@@ -20,7 +22,7 @@
     "这是配置说明，不会自动导入或开通云资源；两个云函数需要同一环境变量。",
     "REMIND_FIELDS必须按实际审核通过的模板替换；示例字段不是已验证模板。",
     "数据库需要文档型数据库与事务能力；不要选择与此SDK不兼容的PG集合接口。",
-    "care_messages建议建立date单字段索引，care_requests建议建立status单字段索引。",
+    "care_messages建议建立date及status单字段索引；照片墙按可信指针分页，不依赖客户端直读。",
     "上传头像由云函数执行，客户端数据库和存储均禁止直读直写。",
     "timer只在部署定时触发器后生效，检查周期约5分钟。"
   ]

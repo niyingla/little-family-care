@@ -6,9 +6,19 @@ for (const target of ['server', 'cloudfunctions/family/lib', 'cloudfunctions/rem
   const dir = path.join(root, target);
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(path.join(root, 'miniprogram/utils/domain.js'), path.join(dir, 'domain.js'));
+  fs.copyFileSync(
+    path.join(root, 'miniprogram/utils/activity-policy.js'),
+    path.join(dir, 'activity-policy.js')
+  );
 }
 for (const name of ['family', 'reminder']) {
-  for (const file of ['service.cjs', 'cloud.cjs']) {
+  for (const file of [
+    'service.cjs',
+    'cloud.cjs',
+    'activity.cjs',
+    'birthdays.cjs',
+    'photo-wall.cjs',
+  ]) {
     const source = path.join(root, 'server', file);
     if (fs.existsSync(source))
       fs.copyFileSync(source, path.join(root, 'cloudfunctions', name, 'lib', file));

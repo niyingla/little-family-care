@@ -1,0 +1,56 @@
+<template name="birthdayEditor">
+  <view class="notice">为{{birthdayForm.name}}记下生日，只需月日，不需要出生年。</view>
+  <view class="form-label">生日历法</view>
+  <view class="choices">
+    <view
+      class="choice {{birthdayForm.calendar === 'solar' ? 'on' : ''}}"
+      data-id="solar"
+      bindtap="changeBirthdayCalendar"
+    >
+      公历（阳历）
+    </view>
+    <view
+      class="choice {{birthdayForm.calendar === 'lunar' ? 'on' : ''}}"
+      data-id="lunar"
+      bindtap="changeBirthdayCalendar"
+    >
+      农历（阴历）
+    </view>
+  </view>
+  <view class="form-label">月份</view>
+  <picker
+    range="{{birthdayMonths}}"
+    value="{{birthdayForm.monthIndex}}"
+    bindchange="changeBirthdayMonth"
+  >
+    <view class="field picker-value">
+      {{birthdayMonths[birthdayForm.monthIndex]}}
+      <text>⌄</text>
+    </view>
+  </picker>
+  <view class="form-label">日期</view>
+  <picker range="{{birthdayDays}}" value="{{birthdayForm.dayIndex}}" bindchange="changeBirthdayDay">
+    <view class="field picker-value">
+      {{birthdayDays[birthdayForm.dayIndex]}}
+      <text>⌄</text>
+    </view>
+  </picker>
+  <view wx:if="{{birthdayForm.calendar === 'lunar'}}" class="switch-row">
+    <text>这是农历闰月生日</text>
+    <switch checked="{{birthdayForm.leap}}" bindchange="changeBirthdayLeap" />
+  </view>
+  <view class="notice">
+    <view>已选择：{{birthdayForm.label}}</view>
+    <view>生日前3天上午10:00提醒所有已加入的有效家人。</view>
+    <view wx:if="{{birthdayForm.calendar === 'solar'}}">公历2月29日遇平年，按2月28日过生日。</view>
+    <block wx:else>
+      <view>闰月生日在当年没有该闰月时，按普通同月过生日。</view>
+      <view>农历三十遇当月只有二十九天时，按当月最后一天过生日。</view>
+    </block>
+    <view>日期换算范围：公历1900年至2100年。</view>
+  </view>
+  <button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="saveBirthday">
+    保存生日
+  </button>
+  <button class="text-button" disabled="{{busy}}" bindtap="clearBirthday">清空生日</button>
+</template>

@@ -1,0 +1,158 @@
+<template name="photoWall">
+  <view class="section-row">
+    <view class="section-title">家庭照片墙 ♡</view>
+    <text class="muted">一起珍藏小美好</text>
+  </view>
+  <view class="card" wx:if="{{wallComposerBabies.length}}">
+    <view wx:if="{{demo}}" class="notice">
+      本地体验可查看发布界面；加入正式家庭后即可拍照、选图和发布。
+    </view>
+    <view class="form-label">分享家庭日常，或为宝宝留下记录</view>
+    <picker
+      range="{{wallComposerBabies}}"
+      range-key="name"
+      value="{{wallComposerIndex}}"
+      bindchange="changeWallComposerBaby"
+      disabled="{{busy}}"
+    >
+      <view class="field picker-value">
+        {{wallComposerBabies[wallComposerIndex].name}}
+        <text>⌄</text>
+      </view>
+    </picker>
+    <textarea
+      class="field"
+      placeholder="记下一句今天的小美好（最多200字）"
+      maxlength="200"
+      value="{{wallDraft.text}}"
+      bindinput="changeWallText"
+      disabled="{{busy}}"
+      style="width: 100%; box-sizing: border-box; min-height: 150rpx"
+    />
+    <view style="display: flex; flex-wrap: wrap; gap: 12rpx">
+      <view wx:for="{{wallDraft.photos}}" wx:key="photoId" style="width: 30%">
+        <image
+          src="{{item.path}}"
+          mode="aspectFill"
+          style="width: 100%; height: 160rpx; border-radius: 16rpx"
+        />
+        <button
+          class="text-button"
+          data-index="{{index}}"
+          bindtap="removeWallDraftPhoto"
+          disabled="{{busy}}"
+        >
+          移除
+        </button>
+      </view>
+    </view>
+    <button
+      class="soft"
+      bindtap="chooseWallPhotos"
+      disabled="{{demo || busy || wallDraft.photos.length >= 9}}"
+      loading="{{wallUploading}}"
+    >
+      ＋ 选择照片 {{wallDraft.photos.length}} / 9
+    </button>
+    <view class="muted">每张1MB以内，支持JPG和PNG，仅已加入的家人可看。</view>
+    <button
+      class="primary"
+      bindtap="publishWallPost"
+      loading="{{busy && !wallUploading}}"
+      disabled="{{demo || busy || !wallDraft.photos.length}}"
+    >
+      发布到家庭照片墙
+    </button>
+  </view>
+  <view class="form-label">浏览范围</view>
+  <picker
+    range="{{wallBabyOptions}}"
+    range-key="name"
+    value="{{wallBabyIndex}}"
+    bindchange="changeWallBaby"
+    disabled="{{wallLoading || busy}}"
+  >
+    <view class="field picker-value">
+      {{wallBabyOptions[wallBabyIndex].name || '全部照片'}}
+      <text>⌄</text>
+    </view>
+  </picker>
+  <view wx:if="{{wallNotice}}" class="notice">{{wallNotice}}</view>
+  <view wx:for="{{wallPosts}}" wx:key="id" class="card" wx:for-item="post">
+    <view class="section-row">
+      <view class="section-title">
+        {{post.authorName}}
+        <text class="baby-tag">{{post.scope === 'family' ? '家庭日常' : post.babyName}}</text>
+      </view>
+      <button
+        wx:if="{{post.canDelete}}"
+        class="text-button"
+        data-id="{{post.id}}"
+        bindtap="deleteWallPost"
+        disabled="{{busy}}"
+      >
+        删除
+      </button>
+    </view>
+    <view class="muted">
+      {{post.timeLabel}} {{post.source === 'completion' ? '· 完成照护时记录' : ''}}
+    </view>
+    <view style="white-space: pre-wrap; line-height: 1.7; margin: 16rpx 0">{{post.text}}</view>
+    <view wx:if="{{post.cover}}" style="position: relative; margin-top: 16rpx">
+      <image
+        src="{{post.cover}}"
+        mode="aspectFill"
+        style="width: 100%; height: 420rpx; border-radius: 20rpx"
+        data-id="{{post.id}}"
+        data-index="0"
+        bindtap="previewWallPost"
+        binderror="wallCoverError"
+      />
+      <view
+        style="
+          position: absolute;
+          right: 16rpx;
+          bottom: 16rpx;
+          padding: 8rpx 16rpx;
+          border-radius: 20rpx;
+          background: rgba(0, 0, 0, 0.5);
+          color: white;
+        "
+      >
+        {{post.photoCount}} 张照片
+      </view>
+    </view>
+    <view wx:elif="{{post.localImages.length}}" style="display: flex; flex-wrap: wrap; gap: 12rpx">
+      <image
+        wx:for="{{post.localImages}}"
+        wx:for-item="picture"
+        wx:key="*this"
+        src="{{picture}}"
+        mode="aspectFill"
+        style="width: 30%; height: 180rpx; border-radius: 16rpx"
+        data-id="{{post.id}}"
+        data-index="{{index}}"
+        bindtap="previewWallPost"
+      />
+    </view>
+    <button wx:else class="soft" data-id="{{post.id}}" bindtap="previewWallPost">
+      📷 查看 {{post.photoCount}} 张照片
+    </button>
+  </view>
+  <view wx:if="{{wallLoading}}" class="muted">正在翻开宝宝的小日常…</view>
+  <view wx:if="{{!wallLoading && !wallPosts.length && !wallCursor && !wallNotice}}" class="empty">
+    还没有照片，和家人记录第一份小美好吧 ♡
+  </view>
+  <button
+    wx:if="{{wallCursor}}"
+    class="soft"
+    bindtap="loadMoreWall"
+    loading="{{wallLoading}}"
+    disabled="{{wallLoading}}"
+  >
+    加载更早的照片
+  </button>
+  <view class="muted footer-note">
+    每页只加载动态首图，点击可查看整组照片。删除动态不会抹去事项执行历史。
+  </view>
+</template>

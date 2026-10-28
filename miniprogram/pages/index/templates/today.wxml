@@ -1,4 +1,5 @@
 <template name="timeline">
+  <view wx:if="{{sharedTaskNotice}}" class="notice shared-task-notice">{{sharedTaskNotice}}</view>
   <view wx:if="{{view === 'today'}}" class="hero">
     <view class="hero-copy">
       <view class="small-label">TODAY'S LITTLE THINGS</view>
@@ -73,7 +74,12 @@
       已完成
     </text>
   </view>
-  <view wx:for="{{rows}}" wx:key="id" class="task-card {{item.done ? 'completed' : ''}}">
+  <view
+    wx:for="{{rows}}"
+    wx:key="id"
+    id="task-{{item.id}}"
+    class="task-card {{item.done ? 'completed' : ''}} {{sharedTaskId === item.id ? 'shared-focus' : ''}}"
+  >
     <view class="task-main">
       <button
         class="check-circle {{item.done ? 'checked' : ''}}"
@@ -111,25 +117,55 @@
           <text>{{item.ruleLabel}}</text>
           <text>· {{item.executionTime || '未设时间'}}</text>
         </view>
-        <view class="assignment">
+        <view wx:if="{{item.done || item.assigneeId}}" class="assignment">
           {{item.done ? item.completedByName + ' · ' + item.time + ' 完成' : item.assigneeName +
           (item.mine && item.assigneeName !== '我' ? '（我）' : '') + ' 负责'}}
         </view>
-        <view wx:if="{{!item.done && item.executionTime}}" class="muted footnote">
+        <view
+          wx:if="{{!item.done && item.executionTime && item.notifyMemberId}}"
+          class="muted footnote"
+        >
           超时30分钟通知：{{item.notifyMemberName}}
         </view>
+        <view wx:if="{{item.done}}" class="thanks-line">
+          ♡ {{item.completedByName}}，感谢你对{{scope === 'family' ? '家庭' :
+          item.subjectName}}的付出
+        </view>
+        <button
+          wx:if="{{item.photoId}}"
+          class="text-button"
+          data-url="{{item.photoUrl}}"
+          data-photo-id="{{item.photoId}}"
+          data-task-id="{{item.id}}"
+          data-date="{{date}}"
+          bindtap="previewCompletionPhoto"
+        >
+          📷 查看完成照片
+        </button>
+        <button
+          wx:if="{{view === 'today'}}"
+          class="text-button"
+          data-id="{{item.id}}"
+          bindtap="toggleFollowing"
+          disabled="{{busy}}"
+        >
+          {{item.following ? '已关注 · 取消' : '♡ 关注完成情况'}} · {{item.followerCount}}人关注
+        </button>
       </view>
     </view>
     <view wx:if="{{!item.done && view === 'today'}}" class="task-actions">
       <button
+        wx:if="{{item.notifyMemberId}}"
         class="nudge"
         data-id="{{item.id}}"
         bindtap="nudge"
-        disabled="{{busy || !item.assigneeActive}}"
+        disabled="{{busy || (item.assigneeId && !item.assigneeActive)}}"
       >
         ♡ 提醒一下
       </button>
-      <button class="share-button" open-type="share" data-id="{{item.id}}">分享给家人 ↗</button>
+      <button wx:if="{{!demo}}" class="share-button" open-type="share" data-id="{{item.id}}">
+        分享给家人 ↗
+      </button>
     </view>
   </view>
   <view wx:if="{{!rows.length}}" class="empty">
@@ -151,6 +187,17 @@
     <view class="event-body">
       <view>{{item.actorName}}{{item.label}}「{{item.title}}」</view>
       <view class="muted">{{item.subjectName}} · {{item.time}}</view>
+      <button
+        wx:if="{{item.photoId}}"
+        class="text-button"
+        data-url="{{item.photoUrl}}"
+        data-photo-id="{{item.photoId}}"
+        data-task-id="{{item.taskId}}"
+        data-date="{{date}}"
+        bindtap="previewCompletionPhoto"
+      >
+        📷 查看当次照片
+      </button>
     </view>
   </view>
   <view wx:if="{{messages.length}}" class="card message-card">

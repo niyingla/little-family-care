@@ -1,0 +1,20 @@
+[Unit]
+Description=Little Family Care reminder scan with persistent Aliyun database
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=littlecare
+Group=littlecare
+WorkingDirectory=/opt/little-family-care/hybrid
+EnvironmentFile=/etc/little-family-care-hybrid.env
+ExecStart=/opt/little-family-care/runtime/node-v24.15.0-linux-x64/bin/node selfhost/remind-once.cjs
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+MemoryMax=256M
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

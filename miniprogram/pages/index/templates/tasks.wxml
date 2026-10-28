@@ -17,13 +17,22 @@
       <text class="baby-tag">{{item.subjectName}}</text>
     </view>
     <view class="plan-rule">
-      {{item.ruleLabel}} · {{item.executionTime || '未设时间'}} · {{item.assigneeName}}负责
+      {{item.ruleLabel}} · {{item.executionTime || '未设时间'}}
+      <text wx:if="{{item.assigneeName}}">· {{item.assigneeName}}负责</text>
     </view>
     <view class="muted">
       从 {{item.startDate}} 开始
       <text wx:if="{{item.scheduled}}">· 新设置明天生效</text>
     </view>
     <view class="plan-actions">
+      <button
+        class="text-button"
+        data-id="{{item.id}}"
+        bindtap="toggleFollowing"
+        disabled="{{busy}}"
+      >
+        {{item.following ? '已关注 · 取消' : '♡ 关注完成'}} · {{item.followerCount}}人
+      </button>
       <button class="text-button" data-id="{{item.id}}" bindtap="togglePin" disabled="{{busy}}">
         {{item.pinned ? '取消置顶' : '置顶事项'}}
       </button>

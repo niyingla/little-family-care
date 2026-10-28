@@ -7,6 +7,9 @@ task_root=/opt/little-family-care
 task_source=$(cd "$(dirname "$0")/.." && pwd)
 if [ "$task_source" != "$task_root/current" ]; then echo '源码目录不正确'; exit 1; fi
 test -x "$task_root/runtime/node-v24.15.0-linux-x64/bin/node"
+# 新版共享运行入口依赖MySQL驱动；SQLite模式也安装同一份锁定的生产依赖。
+export PATH="$task_root/runtime/node-v24.15.0-linux-x64/bin:$PATH"
+(cd "$task_source" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
 
 # 独立系统用户与数据目录，源码和SQLite文件不共享写权限。
 id littlecare >/dev/null 2>&1 || useradd --system --home-dir /var/lib/little-family-care --shell /sbin/nologin littlecare

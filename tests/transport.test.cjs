@@ -1,0 +1,66 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createTransport } = require('../miniprogram/utils/transport');
+
+test('云托管请求保留业务路径与会话，配置自有域名时也优先使用选定云入口', async () => {
+  // 错误回落到wx.request会再次依赖未备案域名，此处禁止该调用发生。
+  let received;
+  const platform = {
+    cloud: {
+      callContainer: async (options) => {
+        received = options;
+        return { statusCode: 200, data: { ok: true } };
+      },
+    },
+    request: () => {
+      throw new Error('unexpected domain request');
+    },
+  };
+  const transport = createTransport(
+    {
+      cloudRunEnvId: 'env-test',
+      cloudRunService: 'family-care',
+      apiBaseUrl: 'https://legacy.example.test',
+    },
+    platform
+  );
+  assert.equal((await transport('/api/call', { action: 'snapshot' }, 'session')).data.ok, true);
+  assert.equal(received.path, '/api/call');
+  assert.equal(received.config.env, 'env-test');
+  assert.equal(received.header['X-WX-SERVICE'], 'family-care');
+  assert.equal(received.header.Authorization, 'Bearer session');
+  assert.deepEqual(received.data, { action: 'snapshot' });
+  await transport('/api/avatar/test.png?expires=1', undefined, '', {
+    method: 'GET',
+    responseType: 'arraybuffer',
+    header: { Range: 'bytes=0-524287' },
+  });
+  assert.equal(received.responseType, 'arraybuffer');
+  assert.equal(received.method, 'GET');
+  assert.equal(received.header.Range, 'bytes=0-524287');
+});
+
+test('后续仅配置HTTPS域名即可切换入口，云配置残缺时明确失败', async () => {
+  let received;
+  const platform = {
+    request: (options) => {
+      received = options;
+      options.success({ statusCode: 200, data: { ok: true } });
+    },
+  };
+  await createTransport({ apiBaseUrl: 'https://api.example.test/' }, platform)('/api/login', {
+    code: 'test-code',
+  });
+  assert.equal(received.url, 'https://api.example.test/api/login');
+  await assert.rejects(
+    createTransport(
+      { cloudRunEnvId: 'env-test', apiBaseUrl: 'https://api.example.test' },
+      platform
+    )('/api/call', {}),
+    /完整/
+  );
+  await assert.rejects(
+    createTransport({ apiBaseUrl: 'http://120.25.247.111' }, platform)('/api/call', {}),
+    /HTTPS/
+  );
+});

@@ -2,6 +2,7 @@
 <import src="templates/tasks.wxml" />
 <import src="templates/family.wxml" />
 <import src="templates/forms.wxml" />
+<import src="templates/photo-wall.wxml" />
 <view class="page">
   <view wx:if="{{!ready}}" class="loading">正在打开我家日常小事簿…</view>
   <block wx:elif="{{gate}}">
@@ -19,7 +20,7 @@
     </view>
     <view class="card gate-card">
       <view class="section-title">欢迎回家 ♡</view>
-      <view class="muted">只对你邀请并确认的家人开放，安心记录每一天。</view>
+      <view class="muted">只对管理员邀请的家人开放，安心记录每一天。</view>
       <block wx:if="{{cloudAvailable}}">
         <input
           class="field"
@@ -32,23 +33,31 @@
         <block wx:if="{{bootstrap.canCreate}}">
           <button class="primary" loading="{{busy}}" bindtap="createFamily">创建我的家庭</button>
         </block>
-        <block wx:else>
+        <block wx:elif="{{token}}">
+          <view class="form-label">
+            家庭身份
+            <text class="muted">选填</text>
+          </view>
           <input
-            class="field code"
-            placeholder="粘贴管理员给你的邀请码"
-            value="{{token}}"
-            maxlength="32"
-            data-field="token"
+            class="field"
+            placeholder="例如：妈妈、爸爸、奶奶、爷爷或其他"
+            maxlength="12"
+            value="{{joinRelation}}"
+            data-field="joinRelation"
             bindinput="input"
           />
-          <button class="primary" loading="{{busy}}" bindtap="joinFamily">申请加入家庭</button>
-          <view wx:if="{{bootstrap.requestStatus === 'pending'}}" class="notice">
-            申请已提交，等待管理员确认。下拉可刷新。
-          </view>
-          <view wx:if="{{bootstrap.requestStatus === 'rejected'}}" class="notice">
-            申请暂未通过，请联系家庭管理员。
-          </view>
+          <view wx:if="{{inviteNotice}}" class="notice">{{inviteNotice}}</view>
+          <view wx:if="{{inviteLoading}}" class="muted">正在读取邀请资料…</view>
+          <button
+            class="primary"
+            loading="{{busy || inviteLoading}}"
+            disabled="{{busy || inviteLoading}}"
+            bindtap="joinFamily"
+          >
+            加入家庭
+          </button>
         </block>
+        <view wx:else class="notice">请让管理员给你发送邀请卡片，再从微信聊天打开加入。</view>
         <view wx:if="{{!bootstrap.ownerConfigured}}" class="notice">
           管理员尚未初始化。请在云函数配置 OWNER_OPENID 后再创建家庭。
         </view>
@@ -81,7 +90,7 @@
       {{error}}
       <text bindtap="refresh">点击重试</text>
     </view>
-    <view wx:if="{{view !== 'family'}}" class="scope-tabs">
+    <view wx:if="{{view !== 'family' && view !== 'photos'}}" class="scope-tabs">
       <view
         class="scope-tab {{scope === 'baby' ? 'active' : ''}}"
         data-id="baby"
@@ -99,7 +108,11 @@
         家庭事项
       </view>
     </view>
-    <scroll-view wx:if="{{view !== 'family' && scope === 'baby'}}" scroll-x class="baby-scroll">
+    <scroll-view
+      wx:if="{{view !== 'family' && view !== 'photos' && scope === 'baby'}}"
+      scroll-x
+      class="baby-scroll"
+    >
       <view class="baby-pills">
         <view
           class="baby-pill {{selectedBaby === 'all' ? 'selected' : ''}}"
@@ -130,13 +143,18 @@
     <template
       wx:if="{{view === 'today' || view === 'history'}}"
       is="timeline"
-      data="{{view,scope,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages}}"
+      data="{{view,scope,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages,demo,sharedTaskId,sharedTaskNotice}}"
     />
     <template wx:if="{{view === 'tasks'}}" is="tasks" data="{{scope,taskList,busy}}" />
     <template
+      wx:if="{{view === 'photos'}}"
+      is="photoWall"
+      data="{{demo,busy,wallPosts,wallCursor,wallLoading,wallNotice,wallBabyOptions,wallBabyIndex,wallComposerBabies,wallComposerIndex,wallDraft,wallUploading}}"
+    />
+    <template
       wx:if="{{view === 'family'}}"
       is="family"
-      data="{{babies,members,owner,requests,profileName,configured,subscribed,demo,busy}}"
+      data="{{babies,members,owner,requests,profileName,configured,subscribed,demo,busy,birthdayMessages}}"
     />
     <view class="footer-note">一起照顾，也记得照顾自己 ♡</view>
     <view class="bottom-nav">
@@ -145,7 +163,7 @@
         wx:key="id"
         class="nav-item {{view === item.id ? 'active' : ''}}"
         data-id="{{item.id}}"
-        bindtap="switchTab"
+        bindtap="navigateTab"
       >
         <view class="nav-icon">{{item.icon}}</view>
         <text>{{item.label}}</text>
@@ -155,6 +173,6 @@
   <template
     wx:if="{{modal}}"
     is="forms"
-    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,notifyOptions,notifyIndex,busy,inviteToken}}"
+    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,notifyOptions,notifyIndex,busy,inviteToken,inviteForm,birthdayForm,birthdayMonths,birthdayDays}}"
   />
 </view>

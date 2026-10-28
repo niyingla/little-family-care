@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!selfhost/
+!selfhost/*.cjs
+!server/
+!server/*.cjs

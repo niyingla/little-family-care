@@ -1,5 +1,6 @@
 // 日期浏览、清单筛选与当天执行；不直接访问云数据库。
 const d = require('../../../utils/domain');
+const { completionMessage } = require('../../../utils/task-feedback');
 const timeLabel = (iso) => (iso ? d.chinaTime(iso) : '');
 const STATUS = {
   queued: '等待发送',
@@ -11,31 +12,50 @@ const STATUS = {
   failed: '发送失败',
 };
 module.exports = {
+  /**
+   * 将同一授权日期快照组装为事项、统计、执行流水和通知展示。
+   * @returns {void} 无快照时不渲染；筛选仅影响展示，不修改家庭业务数据。
+   */
   renderRows() {
+    // 未完成初始化或已失去访问权限时，不从残留页面状态拼装家庭资料。
     if (!this._snapshot) return;
+    // 任务与执行记录必须来自同一日期，不能用今天的完成情况替代历史。
     const { home, day, date, actorId, messages } = this._snapshot;
     let rows = d
       .rowsForDate(home, day, date)
       .filter((r) => r.scope === (this.data.scope || 'baby'));
+    // 家庭事项没有宝宝归属，仅宝宝事项需要应用具体宝宝筛选。
     if (this.data.scope !== 'family' && this.data.selectedBaby !== 'all')
       rows = rows.filter((r) => r.babyId === this.data.selectedBaby);
+    // 统计在完成状态筛选之前计算，否则只看待办时总数和完成率会失真。
     const total = rows.length,
       doneCount = rows.filter((r) => r.done).length;
+    // 流水及通知随业务范围过滤，不能因暂时隐藏已完成行而丢掉其执行记录。
     const visibleTaskIds = rows.map((r) => r.id);
+    // 完成/待办仅是当前清单的视觉筛选，不改变服务端的任务归属和历史。
     rows = rows.filter(
       (r) => this.data.filter === 'all' || (this.data.filter === 'done' ? r.done : !r.done)
     );
+    // 在副本上补展示字段，后续点击仍以服务端任务ID和revision提交。
     rows = rows.map((r) => ({
+      // 保留当前日期重建的业务字段，不把显示时间写回完成记录。
       ...r,
       initial: r.subjectName.slice(0, 1),
       time: timeLabel(r.completedAt),
       mine: r.assigneeId === actorId,
+      // 关注是当前操作者的偏好，不能根据负责人与关注人数推断本人关注。
+      following: r.followers.includes(actorId),
+      followerCount: r.followers.length,
+      // 家庭事项自然没有宝宝头像，图片缺失只影响展示，不影响完成操作。
       picture: (this.data.babies.find((b) => b.id === r.babyId) || {}).picture || '',
     }));
+    // 编辑列表预览明日起生效的版本，今天执行清单仍保留今天的规则。
     const taskList = home.tasks
       .map((task) => {
+        // 同一天编辑从次日生效，列表应展示已保存而尚未执行的新规则。
         const v = d.taskVersion(task, d.addDays(this.data.today, 1));
         const scope = task.scope || 'baby';
+        // 旧任务兼容为宝宝事项，家庭事项不借用任意宝宝作为主体。
         const baby = scope === 'baby' && home.babies.find((b) => b.id === task.babyId);
         const member = home.members.find((m) => m.id === v.assigneeId && m.active);
         return {
@@ -43,32 +63,46 @@ module.exports = {
           id: task.id,
           scope,
           pinned: !!task.pinned,
+          following: (task.followers || []).includes(actorId),
+          // 关注人数只计仍有效的家人，历史残留ID不能充当有效通知接收人。
+          followerCount: (task.followers || []).filter((id) =>
+            home.members.some((m) => m.id === id && m.active)
+          ).length,
           babyId: task.babyId,
           subjectName: scope === 'family' ? '全家' : baby && baby.name,
-          assigneeName: member ? member.name : '待重新分配',
+          // 已离家的执行人明确显示待分配，不能以管理员称呼掩盖未分配状态。
+          assigneeName: member ? member.name : v.assigneeId ? '待重新分配' : '',
           ruleLabel: d.ruleLabel(v),
+          // 生效标志让用户区分今天正在执行与明天才采用的编辑结果。
           scheduled: v.effectiveDate > this.data.today,
         };
       })
       .filter(
         (t) =>
+          // 停用版本不出现在可编辑清单；历史仍由日期快照独立重建。
           !t.archived &&
+          // 停用过滤后仍按事项范围隔离，不能把家庭任务混入宝宝清单。
           t.scope === (this.data.scope || 'baby') &&
+          // “全部宝宝”只扩大宝宝范围，家庭任务无需与不存在的babyId比较。
           (t.scope === 'family' ||
             this.data.selectedBaby === 'all' ||
             t.babyId === this.data.selectedBaby)
       )
       .sort(d.compareTaskOrder);
+    // 执行流水只展示当前业务范围，倒序让最近一次真实操作优先可见。
     const events = ((day && day.events) || [])
       .filter((e) => visibleTaskIds.includes(e.taskId))
       .slice()
       .reverse()
       .map((e) => ({
+        // 旧流水兼容babyName，避免家庭事项引入后历史主体名称丢失。
         ...e,
         subjectName: e.subjectName || e.babyName || '全家',
         time: timeLabel(e.at),
+        // 流水描述的是业务动作；催办动作不代表微信通知已经发送成功。
         label: e.type === 'complete' ? '完成了' : e.type === 'undo' ? '撤销了勾选' : '发起了提醒',
       }));
+    // 一次提交相关清单和统计，避免页面短暂混用两次筛选的结果。
     this.setData({
       rows,
       total,
@@ -76,49 +110,106 @@ module.exports = {
       progress: total ? Math.round((doneCount / total) * 100) : 0,
       events,
       taskList,
+      // 生日面向全家，不依附宝宝事项过滤，也不混入单任务通知。
+      birthdayMessages: messages
+        .filter((m) => m.type === 'birthday')
+        .map((m) => ({
+          // 未知发送状态不能说成成功，保留“待确认”提示供家人判断。
+          ...m,
+          label: STATUS[m.status] || '发送结果待确认',
+        })),
+      // 任务通知只跟随当前范围；微信接收状态和事项完成状态分别展示。
       messages: messages
         .filter((m) => visibleTaskIds.includes(m.taskId))
         .map((m) => ({
+          // 优先采用通知入队时保存的标题，编辑任务不会改写旧消息描述。
           ...m,
+          // 这里只展示后端发送记录，接口接收状态不能等同于家人已经阅读。
           label: STATUS[m.status] || '发送结果待确认',
-          title: (
-            home.tasks.find((t) => t.id === m.taskId) || { versions: [{ title: '任务提醒' }] }
-          ).versions.slice(-1)[0].title,
+          // 兼容旧消息无标题的情况，任务已不存在时仍提供可理解的占位名称。
+          title:
+            m.title ||
+            (
+              home.tasks.find((t) => t.id === m.taskId) || { versions: [{ title: '任务提醒' }] }
+            ).versions.slice(-1)[0].title,
         })),
     });
   },
 
+  /**
+   * 切换主页面并回到当前日期。
+   * @param {object} e 标签事件，dataset.id为today/history/tasks/family。
+   * @returns {void} 重新请求当前页所需的日期快照。
+   */
   switchTab(e) {
+    // 标签切换清除完成状态筛选，防止新页面因沿用筛选而看起来缺少事项。
     const view = e.currentTarget.dataset.id;
     this.setData({ view, filter: 'all', date: this.data.today });
     this.refresh();
   },
+  /**
+   * 切换宝宝或家庭事项范围。
+   * @param {object} e 范围事件，dataset.id为baby或family。
+   * @returns {void} 使用已授权快照重新派生当前范围清单。
+   */
   switchScope(e) {
     // 两大事项块使用各自的统计与流水，切换时清除宝宝和完成状态筛选。
     this.setData({ scope: e.currentTarget.dataset.id, selectedBaby: 'all', filter: 'all' });
     this.renderRows();
   },
+  /**
+   * 限定当前宝宝事项的展示对象。
+   * @param {object} e 宝宝选项事件，dataset.id为宝宝ID或all。
+   * @returns {void} 只重绘筛选，不向后端修改任务归属。
+   */
   selectBaby(e) {
+    // 宝宝归属是任务业务字段，此处只改变查看范围，不能将任务移动给另一宝宝。
     this.setData({ selectedBaby: e.currentTarget.dataset.id });
     this.renderRows();
   },
+  /**
+   * 查看全部、待办或完成事项。
+   * @param {object} e 筛选事件，dataset.id为all/todo/done。
+   * @returns {void} 保留同一日期快照并重绘筛选结果。
+   */
   selectFilter(e) {
+    // 完成率继续按当前范围全部事项统计，筛选本身不会产生执行流水。
     this.setData({ filter: e.currentTarget.dataset.id });
     this.renderRows();
   },
+  /**
+   * 从日期选择器请求历史快照。
+   * @param {object} e 日期事件，detail.value为公历YYYY-MM-DD。
+   * @returns {Promise<void>} 加载指定日期，失败由统一刷新流程提示。
+   */
   async changeDate(e) {
+    // 不沿用另一日期的完成状态筛选，避免将尚未做过的历史清单隐藏。
     this.setData({ date: e.detail.value, filter: 'all' });
     await this.refresh();
   },
+  /**
+   * 在家庭创建日至今天之间按日浏览。
+   * @param {object} e 日期箭头事件，dataset.step为前后移动天数。
+   * @returns {Promise<void>} 合法日期请求快照，越界时不发请求。
+   */
   async changeDay(e) {
     const date = d.addDays(this.data.date, Number(e.currentTarget.dataset.step));
+    // 创建前没有家庭记录，未来也不允许被展示成已发生的执行历史。
     if (date < this.data.createdDate || date > this.data.today) return;
+    // 切换日期后重置视觉筛选，实际记录只由目标日期后端快照提供。
     this.setData({ date, filter: 'all' });
     await this.refresh();
   },
+  /**
+   * 完成或撤销当天事项，完成时允许用户主动选择拍照。
+   * @param {object} e 勾选事件，dataset.id为当前清单中的事项ID。
+   * @returns {Promise<void>} 仅服务端提交成功才显示完成感谢，取消保持原状态。
+   */
   async toggle(e) {
-    if (this.data.view === 'history') return;
+    // 历史只读；提交或拍照选择尚未结束时不能启动第二次完成流程。
+    if (this.data.view === 'history' || this.data.busy || this._completing) return;
     const row = this.data.rows.find((r) => r.id === e.currentTarget.dataset.id);
+    // 页面刷新后行可能已移除，过期点击不能凭旧ID制造完成记录。
     if (!row) return;
     // 撤销与完成均带版本号，服务端拒绝覆盖其他家人的新状态。
     if (row.done) {
@@ -126,16 +217,53 @@ module.exports = {
         title: '撤销这次打勾？',
         content: `${row.subjectName} · ${row.title}`,
       });
+      // 撤销确认被取消时不提交新revision，也不删除已有完成照片。
       if (!confirm.confirm) return;
     }
-    await this.run('complete', {
-      taskId: row.id,
-      date: this.data.today,
-      done: !row.done,
-      expectedRevision: row.revision,
-    });
+    // 拍照期间也阻止重复点击；取消拍照或上传失败时保留未完成状态。
+    this._completing = true;
+    try {
+      // 照片可选；直接完成不会申请相机权限或创建占位照片。
+      let photoId = '';
+      if (!row.done) {
+        let choice;
+        try {
+          // 先由用户明确选择拍照，不能因为点击完成而自动打开系统相机。
+          choice = await wx.showActionSheet({ itemList: ['拍照记录并完成', '直接完成'] });
+        } catch (_) {
+          // 关闭操作菜单等同放弃本次完成，不把关闭菜单当成直接完成。
+          return;
+        }
+        if (choice.tapIndex === 0) {
+          photoId = await this.chooseCompletionPhoto(row);
+          // 取消拍照或上传未成功时不提交完成，避免展示不存在的记录照片。
+          if (!photoId) return;
+        }
+      }
+      // 预期版本来自点击时那一行，另一位家人并发更新后必须由服务端拒绝覆盖。
+      await this.run(
+        'complete',
+        {
+          taskId: row.id,
+          date: this.data.today,
+          done: !row.done,
+          expectedRevision: row.revision,
+          photoId,
+        },
+        !row.done ? completionMessage(row) : '已撤销打勾'
+      );
+    } finally {
+      // 所有退出路径都释放本次选择状态，下次仍可直接完成。
+      this._completing = false;
+    }
   },
+  /**
+   * 为当天未完成事项发起一次手动提醒。
+   * @param {object} e 提醒按钮事件，dataset.id为事项ID。
+   * @returns {Promise<void>} 展示后端实际发送状态，失败不冒充已送达。
+   */
   async nudge(e) {
+    // 接收人和冷却时间由服务端确定，客户端不能在按钮参数里任意指定家人。
     await this.run('nudge', { taskId: e.currentTarget.dataset.id, date: this.data.today });
   },
 };

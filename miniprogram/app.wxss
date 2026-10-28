@@ -295,10 +295,13 @@ input {
   align-items: flex-start;
   gap: 22rpx;
 }
-.check-circle {
+/* 微信 button 默认宽度优先级较高，局部提高选择器优先级并固定圆形占位。 */
+.task-main .check-circle {
+  flex: 0 0 48rpx;
   width: 48rpx;
   height: 48rpx;
   min-width: 48rpx;
+  max-width: 48rpx;
   border: 3rpx solid #d5d9c8;
   border-radius: 50%;
   background: transparent;
@@ -323,9 +326,13 @@ input {
 }
 .task-title-row .task-title {
   flex: 1;
+  min-width: 0;
 }
-.pin-button {
+/* 置顶按钮按文案占宽，避免微信 button 的默认宽度挤压任务标题。 */
+.task-title-row .pin-button {
   flex-shrink: 0;
+  width: auto;
+  white-space: nowrap;
   background: transparent;
   padding: 10rpx 0 4rpx 8rpx;
   color: #b3a28c;
@@ -400,7 +407,8 @@ input {
 .share-button {
   color: #b09a83;
 }
-.add-task {
+/* 这些按钮原设计为容器全宽，局部提高优先级保留该宽度，不改全局 button。 */
+.page .add-task {
   border: 2rpx dashed #d7cbb8;
   background: transparent;
   color: #9a856d;
@@ -467,7 +475,7 @@ input {
   line-height: 1.8;
   margin: 20rpx 0;
 }
-.primary {
+.page .primary {
   background: #9caa87;
   color: #fffdf7;
   padding: 25rpx;
@@ -476,7 +484,7 @@ input {
   margin-top: 24rpx;
   font-size: 29rpx;
 }
-.soft {
+.page .soft {
   background: #f0eadf;
   color: #8c7965;
   padding: 22rpx;
@@ -566,15 +574,26 @@ input {
   padding: 13rpx;
   border-radius: 24rpx;
 }
-.date-arrow {
+/* 局部覆盖微信 button 默认宽度，避免两侧箭头挤占中间日期。 */
+.date-control .date-arrow {
+  flex: 0 0 64rpx;
+  width: 64rpx;
+  min-width: 64rpx;
+  max-width: 64rpx;
   background: transparent;
   font-size: 40rpx;
   color: #99816b;
-  padding: 0 25rpx;
+  padding: 0;
+}
+.date-control picker {
+  flex: 1;
+  min-width: 0;
 }
 .date-label {
   font-size: 28rpx;
   font-weight: 550;
+  white-space: nowrap;
+  text-align: center;
 }
 .date-label text {
   margin-left: 20rpx;
@@ -739,10 +758,15 @@ input {
 .sheet-heading {
   margin-bottom: 20rpx;
 }
-.close-button {
+/* 关闭按钮同样使用固定圆形占位，不继承原生按钮的默认横向宽度。 */
+.sheet-heading .close-button {
+  flex: 0 0 58rpx;
+  margin: 0;
   background: #efe8db;
   border-radius: 50%;
   width: 58rpx;
+  min-width: 58rpx;
+  max-width: 58rpx;
   height: 58rpx;
   line-height: 50rpx;
   font-size: 39rpx;
@@ -917,4 +941,17 @@ input {
 .code {
   font-family: monospace;
   font-size: 24rpx;
+}
+.thanks-line {
+  margin-top: 12rpx;
+  color: #9c7757;
+  font-size: 23rpx;
+  line-height: 1.6;
+}
+.shared-focus {
+  border: 3rpx solid #cba777;
+  box-shadow: 0 6rpx 22rpx rgba(182, 146, 94, 0.14);
+}
+.shared-task-notice {
+  margin-bottom: 22rpx;
 }
