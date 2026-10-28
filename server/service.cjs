@@ -207,8 +207,8 @@ function createService(repo, options) {
       recipientId,
       type,
       title: row.title,
-      babyName: row.babyName,
-      time: row.reminderTime,
+      subjectName: row.subjectName,
+      time: row.executionTime || d.chinaTime(now()),
       status: 'queued',
       createdAt: now(),
     };
@@ -234,8 +234,9 @@ function createService(repo, options) {
         !row ||
         row.done ||
         !row.assigneeActive ||
-        row.assigneeId !== message.recipientId ||
-        message.date !== d.chinaDate(now())
+        !row.notifyMemberActive ||
+        row.notifyMemberId !== message.recipientId ||
+        ![d.chinaDate(now()), d.addDays(d.chinaDate(now()), -1)].includes(message.date)
       )
         status = 'skipped';
       else if (!templateId) status = 'unconfigured';
@@ -272,24 +273,35 @@ function createService(repo, options) {
   async function tick() {
     const home = await repo.get('care_home', 'home');
     if (!home) return { checked: 0, sent: 0 };
-    const date = d.chinaDate(now());
-    const time = d.chinaTime(now());
-    const rows = d.rowsForDate(home, await repo.get('care_days', date), date);
+    const today = d.chinaDate(now());
+    const currentTime = new Date(now()).getTime();
+    let checked = 0;
     let sent = 0;
-    for (const row of rows.filter((r) => !r.done && r.assigneeActive && r.reminderTime <= time)) {
-      const messageId = hash(`auto:${date}:${row.id}:${row.assigneeId}`).slice(0, 40);
-      // 唯一日期、任务、接收人组成消息ID，重复定时触发不会重复入队。
-      await repo.transaction(async (tx) => {
-        if (!(await tx.get('care_messages', messageId)))
-          await tx.put(
-            'care_messages',
-            messageId,
-            notification(row, date, row.assigneeId, 'auto', messageId)
-          );
-      });
-      if ((await deliver(messageId)) === 'sent') sent += 1;
+    // 同时检查昨天与今天，覆盖深夜任务在次日才超时的边界。
+    for (const date of [d.addDays(today, -1), today]) {
+      const rows = d.rowsForDate(home, await repo.get('care_days', date), date);
+      checked += rows.length;
+      for (const row of rows.filter(
+        (r) =>
+          !r.done &&
+          r.assigneeActive &&
+          r.notifyMemberActive &&
+          d.overdueAt(date, r.executionTime) <= currentTime
+      )) {
+        const messageId = hash(`auto:${date}:${row.id}:${row.notifyMemberId}`).slice(0, 40);
+        // 唯一日期、任务、接收人组成消息ID，重复定时触发不会重复入队。
+        await repo.transaction(async (tx) => {
+          if (!(await tx.get('care_messages', messageId)))
+            await tx.put(
+              'care_messages',
+              messageId,
+              notification(row, date, row.notifyMemberId, 'auto', messageId)
+            );
+        });
+        if ((await deliver(messageId)) === 'sent') sent += 1;
+      }
     }
-    return { checked: rows.length, sent };
+    return { checked, sent };
   }
 
   /**
@@ -324,7 +336,7 @@ function createService(repo, options) {
         const home = d.createHome(actorId, data.name, d.chinaDate(now()));
         await tx.put('care_home', 'home', home);
         await tx.put('care_users', actorId, { openid, subscribed: false });
-        return { message: '欢迎，开始记录宝宝的小小日常吧' };
+        return { message: '欢迎回家，一起把日常小事记下来吧' };
       });
     if (action === 'applyInvite') return applyInvite(openid, data);
     if (action === 'reviewInvite') return reviewInvite(openid, data);
@@ -352,6 +364,7 @@ function createService(repo, options) {
     const actions = [
       'saveBaby',
       'saveTask',
+      'setPinned',
       'archiveTask',
       'complete',
       'nudge',

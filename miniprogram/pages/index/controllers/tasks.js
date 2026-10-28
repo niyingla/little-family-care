@@ -3,7 +3,7 @@ const d = require('../../../utils/domain');
 const EMPTY_TASK = require('../../../utils/forms').emptyTask;
 module.exports = {
   openTask(e) {
-    if (!this.data.babies.length) {
+    if (this.data.scope !== 'family' && !this.data.babies.length) {
       wx.showToast({ title: '先在家庭页添加宝宝吧', icon: 'none' });
       return;
     }
@@ -13,16 +13,26 @@ module.exports = {
       ? {
           ...d.taskVersion(task, d.addDays(this.data.today, 1)),
           taskId: id,
-          babyIds: [task.babyId],
+          scope: task.scope || 'baby',
+          babyIds: task.babyId ? [task.babyId] : [],
         }
       : {
           ...EMPTY_TASK(),
+          scope: this.data.scope || 'baby',
           babyIds:
-            this.data.selectedBaby === 'all' ? [this.data.babies[0].id] : [this.data.selectedBaby],
+            this.data.scope === 'family'
+              ? []
+              : this.data.selectedBaby === 'all'
+                ? [this.data.babies[0].id]
+                : [this.data.selectedBaby],
           assigneeId: this._snapshot.actorId,
         };
     // 执行人已离家时显示明确占位，不能把列表第一位误显示为新的执行人。
     const taskMembers = [{ id: '', name: '请选择执行人' }, ...this.data.members];
+    const notifyOptions = [{ id: '', name: '与执行人相同' }, ...this.data.members];
+    if (form.notifyMemberId && !this.data.members.some((m) => m.id === form.notifyMemberId)) {
+      notifyOptions.unshift({ id: form.notifyMemberId, name: '原通知人已离家，请重选' });
+    }
     this.setData({
       modal: 'task',
       form,
@@ -31,6 +41,11 @@ module.exports = {
         taskMembers.findIndex((m) => m.id === form.assigneeId)
       ),
       taskMembers,
+      notifyOptions,
+      notifyIndex: Math.max(
+        0,
+        notifyOptions.findIndex((m) => m.id === (form.notifyMemberId || ''))
+      ),
       taskBabies: this.data.babies.map((b) => ({ ...b, selected: form.babyIds.includes(b.id) })),
       week: this.data.week.map((w) => ({ ...w, selected: form.weekdays.includes(w.n) })),
     });
@@ -64,6 +79,15 @@ module.exports = {
     const index = Number(e.detail.value);
     this.setData({ memberIndex: index, 'form.assigneeId': this.data.taskMembers[index].id });
   },
+  chooseNotifyMember(e) {
+    const index = Number(e.detail.value);
+    // 被通知人可与执行人不同，服务端会再次验证其家庭成员资格。
+    this.setData({ notifyIndex: index, 'form.notifyMemberId': this.data.notifyOptions[index].id });
+  },
+  clearExecutionTime() {
+    // 清空计划时间会同时关闭该任务的自动超时通知，手动提醒仍保留。
+    this.setData({ 'form.executionTime': '' });
+  },
   async saveTask() {
     const result = await this.run('saveTask', {
       ...this.data.form,
@@ -77,5 +101,11 @@ module.exports = {
       content: '明天起不再出现，今天和已有历史记录都会保留。',
     });
     if (response.confirm) await this.run('archiveTask', { taskId: e.currentTarget.dataset.id });
+  },
+  async togglePin(e) {
+    const id = e.currentTarget.dataset.id;
+    const task = this._snapshot.home.tasks.find((t) => t.id === id);
+    // 通过服务端共享状态，其他家人刷新后会看到相同的重点事项。
+    if (task) await this.run('setPinned', { taskId: id, pinned: !task.pinned });
   },
 };

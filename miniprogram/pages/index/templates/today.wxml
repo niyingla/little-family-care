@@ -2,9 +2,12 @@
   <view wx:if="{{view === 'today'}}" class="hero">
     <view class="hero-copy">
       <view class="small-label">TODAY'S LITTLE THINGS</view>
-      <view class="hero-title">慢慢来，一件一件做。</view>
+      <view class="hero-title">
+        {{scope === 'family' ? '把日子过好，一起就好。' : '慢慢来，一件一件做。'}}
+      </view>
       <view class="hero-sub">
-        {{total ? '每一个小勾，都是对宝宝的爱。' : '今天的小事，和家人一起安排。'}}
+        {{scope === 'family' ? '分担一点小事，多留一点温暖。' : total ?
+        '每一个小勾，都是对宝宝的爱。' : '今天的小事，和家人一起安排。'}}
       </view>
       <view class="progress-label">
         <text>已完成 {{doneCount}} / {{total}} 件</text>
@@ -44,7 +47,8 @@
   </view>
   <view class="section-row">
     <view class="section-title">
-      {{view === 'today' ? '今天的小事' : '当天执行情况'}}
+      {{view === 'today' ? (scope === 'family' ? '今天的家庭小事' : '今天的宝宝小事') :
+      '当天执行情况'}}
       <text class="count">{{total}}</text>
     </view>
     <text wx:if="{{view === 'today'}}" class="date-text">{{date}}</text>
@@ -81,7 +85,21 @@
         {{item.done ? '✓' : ''}}
       </button>
       <view class="task-body">
-        <view class="task-title">{{item.title}}</view>
+        <view class="task-title-row">
+          <view class="task-title">
+            <text wx:if="{{item.pinned}}" class="pin-badge">置顶</text>
+            {{item.title}}
+          </view>
+          <button
+            wx:if="{{view === 'today'}}"
+            class="pin-button {{item.pinned ? 'is-pinned' : ''}}"
+            data-id="{{item.id}}"
+            bindtap="togglePin"
+            disabled="{{busy}}"
+          >
+            {{item.pinned ? '取消置顶' : '置顶'}}
+          </button>
+        </view>
         <view class="task-meta">
           <image
             wx:if="{{item.picture}}"
@@ -89,13 +107,16 @@
             src="{{item.picture}}"
             mode="aspectFill"
           />
-          <text class="baby-tag {{item.color}}">{{item.babyName}}</text>
+          <text class="baby-tag {{item.color}}">{{item.subjectName}}</text>
           <text>{{item.ruleLabel}}</text>
-          <text>· {{item.reminderTime}}</text>
+          <text>· {{item.executionTime || '未设时间'}}</text>
         </view>
         <view class="assignment">
           {{item.done ? item.completedByName + ' · ' + item.time + ' 完成' : item.assigneeName +
-          (item.mine ? '（我）' : '') + ' 负责'}}
+          (item.mine && item.assigneeName !== '我' ? '（我）' : '') + ' 负责'}}
+        </view>
+        <view wx:if="{{!item.done && item.executionTime}}" class="muted footnote">
+          超时30分钟通知：{{item.notifyMemberName}}
         </view>
       </view>
     </view>
@@ -129,7 +150,7 @@
     <view class="event-dot" />
     <view class="event-body">
       <view>{{item.actorName}}{{item.label}}「{{item.title}}」</view>
-      <view class="muted">{{item.babyName}} · {{item.time}}</view>
+      <view class="muted">{{item.subjectName}} · {{item.time}}</view>
     </view>
   </view>
   <view wx:if="{{messages.length}}" class="card message-card">

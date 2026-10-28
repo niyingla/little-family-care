@@ -1,7 +1,7 @@
 {
   "pages": ["pages/index/index"],
   "window": {
-    "navigationBarTitleText": "小小日常",
+    "navigationBarTitleText": "我家日常小事簿",
     "navigationBarBackgroundColor": "#FCF8F1",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#FCF8F1",

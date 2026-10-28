@@ -14,6 +14,7 @@ Page({
     demo: false,
     gate: true,
     view: 'today',
+    scope: 'baby',
     filter: 'all',
     selectedBaby: 'all',
     today: d.chinaDate(new Date()),
@@ -40,6 +41,7 @@ Page({
     profileName: '',
     inviteToken: '',
     frequencies: [
+      { id: 'once', label: '仅一次' },
       { id: 'daily', label: '每天' },
       { id: 'interval', label: '每隔几天' },
       { id: 'weekly', label: '每周几' },
@@ -53,7 +55,7 @@ Page({
       { id: 'today', icon: '☀', label: '今天' },
       { id: 'history', icon: '◷', label: '历史' },
       { id: 'tasks', icon: '☷', label: '任务' },
-      { id: 'family', icon: '♡', label: '家庭' },
+      { id: 'family', icon: '♡', label: '家人' },
     ],
   },
 
@@ -86,7 +88,7 @@ Page({
 
   async boot() {
     this.setData({ error: '' });
-    if (!api.config.envId) {
+    if (!api.config.apiBaseUrl && !api.config.envId) {
       this.setData({ ready: true, gate: true, cloudAvailable: false });
       return;
     }
@@ -214,7 +216,7 @@ Page({
     const id = e && e.target && e.target.dataset.id;
     const row = this.data.rows.find((r) => r.id === id);
     return {
-      title: row ? '有件照护小事，等你来看一下 ♡' : '小小日常 · 一起照顾宝宝',
+      title: row ? '有件照护小事，等你来看一下 ♡' : '我家日常小事簿 · 一起照顾宝宝',
       path: row ? `/pages/index/index?task=${row.id}` : '/pages/index/index',
     };
   },

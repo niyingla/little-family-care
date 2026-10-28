@@ -51,7 +51,8 @@ const expr = (code, scope) => {
 };
 const value = (text, scope) => {
   if (text === null) return '';
-  const match = text.match(/^{{([\s\S]*)}}$/);
+  // 只有单个插值才保留对象类型；多个插值必须逐段替换，不能吞成一个表达式。
+  const match = text.match(/^{{((?:(?!{{|}})[\s\S])*)}}$/);
   if (match) return expr(match[1], scope);
   return text.replace(/{{([\s\S]*?)}}/g, (_, code) => String(expr(code, scope) ?? ''));
 };
@@ -122,7 +123,16 @@ window.Page = (options) => {
       });
       target[parts.at(-1)] = val;
     }
-    render();
+    // 原生setData不会替换正在输入的控件；预览也保留这些输入节点。
+    const inputOnly = new Set([
+      'form.title',
+      'form.interval',
+      'babyForm.name',
+      'joinName',
+      'token',
+      'profileName',
+    ]);
+    if (Object.keys(update).some((key) => !inputOnly.has(key))) render();
   };
   window.previewPage = page;
 };
@@ -174,7 +184,9 @@ function element(node, scope) {
     select.className = 'picker-input';
     if (mode === 'date' || mode === 'time') {
       select.type = mode;
-      select.value = value(node.getAttribute('value'), scope) || '';
+      // 浏览器时间输入直接展示业务值，避免把原生选择器的初始候选时间误显示为已设置。
+      const field = node.getAttribute('data-field');
+      select.value = (field ? expr(field, scope) : value(node.getAttribute('value'), scope)) || '';
       select.min = value(node.getAttribute('start'), scope) || '';
       select.max = value(node.getAttribute('end'), scope) || '';
     } else {

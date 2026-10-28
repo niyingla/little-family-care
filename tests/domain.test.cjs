@@ -28,7 +28,7 @@ function task(h, extra = {}) {
       interval: 2,
       weekdays: [1, 3, 5],
       startDate: '2026-10-28',
-      reminderTime: '09:00',
+      executionTime: '09:00',
       ...extra,
     },
     now,
@@ -86,7 +86,7 @@ test('编辑从次日生效；更名、归档不覆盖过去的应做和完成�
       assigneeId: 'dad',
       frequency: 'daily',
       startDate: '2026-10-28',
-      reminderTime: '10:00',
+      executionTime: '10:00',
     },
     now,
     id
@@ -184,7 +184,7 @@ test('没有家庭成员的名字或无效日期、间隔、星期不得创建�
     { frequency: 'interval', interval: 0 },
     { frequency: 'weekly', weekdays: [] },
     { startDate: '2026-02-30' },
-    { reminderTime: '25:00' },
+    { executionTime: '25:00' },
   ]) {
     assert.throws(() => task(home(), extra));
   }
@@ -212,4 +212,63 @@ test('未打开过的历史日期也能重建漏做清单，创建之前没有�
   const h = task(home());
   assert.equal(d.rowsForDate(h, null, '2026-10-29').length, 1);
   assert.equal(d.rowsForDate(h, null, '2026-10-27').length, 0);
+});
+
+test('家庭事项不绑定宝宝；宝宝事项仍需有效宝宝，各自历史独立', () => {
+  const h = task(home(), { scope: 'family', babyIds: [], title: '整理客厅' });
+  const result = d.rowsForDate(h, null, '2026-10-28');
+  assert.equal(result.length, 1);
+  assert.equal(result[0].scope, 'family');
+  assert.equal(result[0].subjectName, '全家');
+  assert.equal(Object.hasOwn(result[0], 'babyId'), false);
+  const both = task(h, { scope: 'baby', title: '整理宝宝衣物' });
+  const rows = d.rowsForDate(both, null, '2026-10-28');
+  assert.equal(rows.filter((r) => r.scope === 'family').length, 1);
+  assert.equal(rows.filter((r) => r.scope === 'baby').length, 1);
+});
+
+test('仅一次的家庭事项只出现在指定日期，不变成每天重复', () => {
+  const h = task(home(), {
+    scope: 'family',
+    babyIds: [],
+    frequency: 'once',
+    startDate: '2026-10-29',
+  });
+  assert.equal(d.rowsForDate(h, null, '2026-10-28').length, 0);
+  assert.equal(d.rowsForDate(h, null, '2026-10-29').length, 1);
+  assert.equal(d.rowsForDate(h, null, '2026-10-30').length, 0);
+});
+
+test('重要事项置顶优先于时间排序，取消置顶恢复原顺序且不改执行周期', () => {
+  let h = task(home(), {
+    scope: 'family',
+    babyIds: [],
+    title: '早上的家务',
+    executionTime: '08:00',
+  });
+  h = task(h, { scope: 'family', babyIds: [], title: '重要的家庭安排', executionTime: '20:00' });
+  const importantId = h.tasks[1].id;
+  const pinned = d.transition(
+    h,
+    null,
+    'owner',
+    'setPinned',
+    { taskId: importantId, pinned: true },
+    now,
+    id
+  ).home;
+  const rows = d.rowsForDate(pinned, null, '2026-10-28');
+  assert.equal(rows[0].title, '重要的家庭安排');
+  assert.equal(rows[0].pinned, true);
+  assert.equal(d.rowsForDate(pinned, null, '2026-10-29').length, 2);
+  const unpinned = d.transition(
+    pinned,
+    null,
+    'owner',
+    'setPinned',
+    { taskId: importantId, pinned: false },
+    now,
+    id
+  ).home;
+  assert.equal(d.rowsForDate(unpinned, null, '2026-10-28')[0].title, '早上的家务');
 });

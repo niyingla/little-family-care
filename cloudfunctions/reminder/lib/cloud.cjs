@@ -77,7 +77,7 @@ function runtime(cloud) {
       // 模板字段由部署环境决定，不能用示例字段冒充已经验证的微信模板。
       const data = {};
       data[fields.task] = { value: message.title.slice(0, 20) };
-      data[fields.baby] = { value: message.babyName.slice(0, 12) };
+      data[fields.baby] = { value: message.subjectName.slice(0, 12) };
       data[fields.time] = { value: `${message.date} ${message.time}:00` };
       const result = await cloud.openapi.subscribeMessage.send({
         touser: message.openid,

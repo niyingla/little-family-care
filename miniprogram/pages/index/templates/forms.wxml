@@ -11,6 +11,10 @@
       </view>
       <scroll-view class="sheet-body" scroll-y>
         <block wx:if="{{modal === 'task'}}">
+          <view class="notice">
+            {{form.scope === 'family' ? '家庭事项 · 不关联宝宝，由家人一起分担。' : '宝宝事项 ·
+            关联具体宝宝，独立记录完成情况。'}}
+          </view>
           <view class="form-label">需要做什么</view>
           <input
             class="field"
@@ -20,11 +24,11 @@
             data-field="form.title"
             bindinput="input"
           />
-          <view class="form-label">
+          <view wx:if="{{form.scope !== 'family'}}" class="form-label">
             哪位宝宝的小事
             <text class="muted">{{form.taskId ? '宝宝归属不变' : '可多选，分别打勾'}}</text>
           </view>
-          <view class="choices">
+          <view wx:if="{{form.scope !== 'family'}}" class="choices">
             <view
               wx:for="{{taskBabies}}"
               wx:key="id"
@@ -94,21 +98,44 @@
               <text>⌄</text>
             </view>
           </picker>
-          <view class="form-label">提醒时间</view>
+          <view class="form-label">
+            执行时间
+            <text class="muted">可以不设置</text>
+          </view>
           <picker
             mode="time"
-            value="{{form.reminderTime}}"
+            value="{{form.executionTime || '09:00'}}"
             bindchange="input"
-            data-field="form.reminderTime"
+            data-field="form.executionTime"
           >
             <view class="field picker-value">
-              {{form.reminderTime}}
+              {{form.executionTime || '未设置，点击选择'}}
               <text>⌄</text>
             </view>
           </picker>
+          <button wx:if="{{form.executionTime}}" class="text-button" bindtap="clearExecutionTime">
+            清除执行时间
+          </button>
+          <view class="form-label">超时后通知谁</view>
+          <picker
+            range="{{notifyOptions}}"
+            range-key="name"
+            value="{{notifyIndex}}"
+            bindchange="chooseNotifyMember"
+          >
+            <view class="field picker-value">
+              {{notifyOptions[notifyIndex].name}}
+              <text>⌄</text>
+            </view>
+          </picker>
+          <view class="muted footnote">
+            {{form.executionTime ? '超过执行时间30分钟仍未完成，才通知选定家人。' :
+            '未设置执行时间，不自动发超时通知；仍可手动提醒。'}}
+          </view>
           <view class="notice">
             {{form.taskId ? '修改从明天起生效，今天与历史记录不变。' :
-            '按北京时间安排。过去的开始日期会从今天算起，不补写历史。'}} 微信提醒需执行人订阅授权。
+            '按北京时间安排。过去的开始日期会从今天算起，不补写历史。'}}
+            微信提醒需被通知人主动订阅授权。
           </view>
           <button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="saveTask">
             {{form.taskId ? '保存调整' : '把小事记下来'}}

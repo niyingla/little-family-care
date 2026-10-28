@@ -29,6 +29,7 @@ const weekday = (date) => new Date(dateNumber(date)).getUTCDay() || 7;
 function isDue(rule, date) {
   // 先排除任务开始之前的日期；按UTC日历整数计算可避开夏令时。
   if (!validDate(date) || date < rule.startDate) return false;
+  if (rule.frequency === 'once') return date === rule.startDate;
   if (rule.frequency === 'daily') return true;
   if (rule.frequency === 'weekly') return rule.weekdays.includes(weekday(date));
   return Math.round((dateNumber(date) - dateNumber(rule.startDate)) / DAY) % rule.interval === 0;
@@ -93,12 +94,44 @@ function createHome(ownerId, name, date) {
  */
 function taskVersion(task, date) {
   // 每次编辑保存版本；历史查询按当时的规则重建，而非套用今天的配置。
-  return task.versions
+  const version = task.versions
     .filter((v) => v.effectiveDate <= date)
     .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate))[0];
+  if (!version) return undefined;
+  // 兼容此前仅用于本地体验的旧字段；正式保存只使用执行时间语义。
+  const { reminderTime, ...current } = version;
+  return {
+    ...current,
+    executionTime: version.executionTime === undefined ? reminderTime || '' : version.executionTime,
+    notifyMemberId: version.notifyMemberId || version.assigneeId,
+  };
+}
+
+/**
+ * @param {object} a 待排序的第一项，包含pinned及可选executionTime。
+ * @param {object} b 待排序的第二项，包含pinned及可选executionTime。
+ * @returns {number} 置顶优先，有时间的按时间，无时间的放在后面。
+ */
+function compareTaskOrder(a, b) {
+  // 无执行时间不会被误当成凌晨，也不影响周期和是否需要执行。
+  return (
+    Number(b.pinned) - Number(a.pinned) ||
+    (a.executionTime || '24:00').localeCompare(b.executionTime || '24:00')
+  );
+}
+
+/**
+ * @param {string} date 任务所属的北京时间日历日期。
+ * @param {string} executionTime 可选HH:mm，未设置时为空。
+ * @returns {number} 计划时间后30分钟的毫秒时间戳；无时间返回Infinity。
+ */
+function overdueAt(date, executionTime) {
+  // 显式使用东八区，23:50的计划会在次日00:20达到通知条件。
+  return executionTime ? Date.parse(`${date}T${executionTime}:00+08:00`) + 30 * 60000 : Infinity;
 }
 
 function ruleLabel(rule) {
+  if (rule.frequency === 'once') return '仅一次';
   // 给用户显示具体周期，避免把“每2天”误解为“隔2天”。
   if (rule.frequency === 'daily') return '每天';
   if (rule.frequency === 'interval')
@@ -121,30 +154,43 @@ function rowsForDate(home, day, date) {
       const version = taskVersion(task, date);
       // 归档从次日生效，不抹掉归档前的任务或完成记录。
       if (!version || version.archived || !isDue(version, date)) return null;
-      const baby = home.babies.find((b) => b.id === task.babyId);
+      const scope = task.scope || 'baby';
+      const baby = scope === 'baby' && home.babies.find((b) => b.id === task.babyId);
       // 执行人离家后不继续发送通知，但历史任务仍显示并提示重新分配。
       const assignee = home.members.find((m) => m.id === version.assigneeId && m.active);
+      const recipient = home.members.find((m) => m.id === version.notifyMemberId && m.active);
       const record = records[task.id] || {};
       // 已完成者的称呼取自执行当时的快照，改名或移除成员不能篡改历史归属。
       // revision交给客户端随操作带回，以拒绝过期页面覆盖刚发生的完成动作。
-      return {
+      const common = {
         ...version,
         id: task.id,
-        babyId: task.babyId,
-        babyName: baby ? baby.name : '宝宝',
-        avatar: (baby && baby.avatar) || '',
-        color: (baby && baby.color) || 'peach',
+        scope,
+        pinned: !!task.pinned,
         assigneeName: assignee ? assignee.name : '待重新分配',
         assigneeActive: !!assignee,
+        notifyMemberName: recipient ? recipient.name : '待重新选择通知人',
+        notifyMemberActive: !!recipient,
         done: !!record.done,
         revision: record.revision || 0,
         completedAt: record.completedAt || '',
         completedByName: record.completedByName || '',
         ruleLabel: ruleLabel(version),
       };
+      // 家庭事项没有宝宝字段；两类事项只共享周期、执行人与完成信息。
+      return scope === 'family'
+        ? { ...common, subjectName: '全家', color: 'sage' }
+        : {
+            ...common,
+            babyId: task.babyId,
+            babyName: baby ? baby.name : '宝宝',
+            subjectName: baby ? baby.name : '宝宝',
+            avatar: (baby && baby.avatar) || '',
+            color: (baby && baby.color) || 'peach',
+          };
     })
     .filter(Boolean)
-    .sort((a, b) => a.reminderTime.localeCompare(b.reminderTime) || a.id.localeCompare(b.id));
+    .sort((a, b) => compareTaskOrder(a, b) || a.id.localeCompare(b.id));
 }
 
 /**
@@ -159,7 +205,7 @@ function validateTask(home, data) {
   // 不能让无效日期被JavaScript自动顺延成下个月，也不能分配给外人。
   ensure(text(data.title, 60), '请填写任务名称');
   ensure(validDate(startDate), '开始日期不正确');
-  ensure(['daily', 'interval', 'weekly'].includes(data.frequency), '请选择重复周期');
+  ensure(['once', 'daily', 'interval', 'weekly'].includes(data.frequency), '请选择重复周期');
   ensure(
     home.members.some((m) => m.id === data.assigneeId && m.active),
     '请选择有效的家庭执行人'
@@ -177,7 +223,13 @@ function validateTask(home, data) {
       (weekdays.length > 0 && weekdays.every((n) => Number.isInteger(n) && n >= 1 && n <= 7)),
     '至少选择一个有效星期'
   );
-  ensure(/^([01]\d|2[0-3]):[0-5]\d$/.test(data.reminderTime || ''), '提醒时间不正确');
+  const executionTime = data.executionTime || '';
+  ensure(!executionTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(executionTime), '执行时间不正确');
+  const notifyMemberId = data.notifyMemberId || data.assigneeId;
+  ensure(
+    home.members.some((m) => m.id === notifyMemberId && m.active),
+    '请选择有效的被通知人'
+  );
   // 只返回业务白名单字段，防止客户端夹带archived或effectiveDate改写历史。
   return {
     title: text(data.title, 60),
@@ -186,7 +238,8 @@ function validateTask(home, data) {
     interval,
     weekdays,
     startDate,
-    reminderTime: data.reminderTime,
+    executionTime,
+    notifyMemberId,
     archived: false,
   };
 }
@@ -205,6 +258,10 @@ function saveTask(home, data, today, makeId) {
   if (data.taskId) {
     const task = home.tasks.find((t) => t.id === data.taskId);
     ensure(task, '任务不存在');
+    ensure(
+      !data.scope || data.scope === (task.scope || 'baby'),
+      '不能把已有任务改到另一类事项，请另建任务'
+    );
     // 编辑从次日生效；同一天反复修改只保留次日的最终版本。
     const effectiveDate = addDays(today, 1);
     task.versions = task.versions.filter((v) => v.effectiveDate !== effectiveDate);
@@ -212,6 +269,24 @@ function saveTask(home, data, today, makeId) {
     return { message: '已保存，明天起生效；今天和历史记录保持原样' };
   }
   const babyIds = [...new Set(data.babyIds || [])];
+  const scope = data.scope || 'baby';
+  ensure(scope === 'baby' || scope === 'family', '事项类型不正确');
+  if (scope === 'family') {
+    ensure(home.tasks.length < 200, '任务数量已达200项，请整理后再添加');
+    // 家庭事项只有一个完成状态，不借用某个宝宝ID作为占位。
+    home.tasks.push({
+      id: makeId(),
+      scope,
+      versions: [
+        {
+          ...version,
+          effectiveDate: today,
+          startDate: version.startDate < today ? today : version.startDate,
+        },
+      ],
+    });
+    return { message: '家庭事项已添加' };
+  }
   ensure(
     babyIds.length > 0 && babyIds.every((id) => home.babies.some((b) => b.id === id)),
     '请选择宝宝'
@@ -221,6 +296,7 @@ function saveTask(home, data, today, makeId) {
   babyIds.forEach((babyId) =>
     home.tasks.push({
       id: makeId(),
+      scope: 'baby',
       babyId,
       versions: [
         {
@@ -270,7 +346,7 @@ function modifyDay(home, day, member, action, data, now, makeId) {
       type: data.done ? 'complete' : 'undo',
       taskId: row.id,
       title: row.title,
-      babyName: row.babyName,
+      subjectName: row.subjectName,
       actorName: member.name,
       at: now,
     });
@@ -278,7 +354,8 @@ function modifyDay(home, day, member, action, data, now, makeId) {
   }
   ensure(!row.done, '这件事已经完成，不需要再提醒');
   ensure(row.assigneeActive, '请先重新分配执行人');
-  const key = `${row.id}:${row.assigneeId}`;
+  ensure(row.notifyMemberActive, '请先重新选择被通知人');
+  const key = `${row.id}:${row.notifyMemberId}`;
   const previous = day.nudges[key];
   // 按任务和接收人统一冷却，避免多个家人轮流点击产生刷屏。
   ensure(!previous || new Date(now) - new Date(previous) >= 600000, '刚刚提醒过，请稍后再试');
@@ -290,14 +367,14 @@ function modifyDay(home, day, member, action, data, now, makeId) {
     type: 'nudge',
     taskId: row.id,
     title: row.title,
-    babyName: row.babyName,
+    subjectName: row.subjectName,
     actorName: member.name,
     at: now,
-    recipientId: row.assigneeId,
+    recipientId: row.notifyMemberId,
   });
   return {
     message: '已记下提醒；微信通知结果请查看发送状态',
-    recipientId: row.assigneeId,
+    recipientId: row.notifyMemberId,
     eventId,
     row,
   };
@@ -344,6 +421,13 @@ function transition(originalHome, originalDay, actorId, action, data, now, makeI
     result = { message: '宝宝资料已保存' };
   } else if (action === 'saveTask') {
     result = saveTask(home, data, today, makeId);
+  } else if (action === 'setPinned') {
+    const task = home.tasks.find((t) => t.id === data.taskId);
+    ensure(task, '任务不存在');
+    ensure(typeof data.pinned === 'boolean', '置顶状态不正确');
+    // 置顶是家庭共享的展示偏好，不新增周期版本或改写执行历史。
+    task.pinned = data.pinned;
+    result = { message: data.pinned ? '重要事项已置顶' : '已取消置顶' };
   } else if (action === 'archiveTask') {
     const task = home.tasks.find((t) => t.id === data.taskId);
     ensure(task, '任务不存在');
@@ -401,12 +485,30 @@ function createDemo(today) {
           weekdays: [weekday(today)],
           startDate: today,
           effectiveDate: today,
-          reminderTime: s[2],
+          executionTime: s[2],
           archived: false,
         },
       ],
     })
   );
+  // 示例家庭事务独立于宝宝，切换两个入口时不会混合任务或完成数量。
+  home.tasks.push({
+    id: 'demo-family-task',
+    scope: 'family',
+    versions: [
+      {
+        title: '整理客厅的小角落',
+        assigneeId: 'demo-family',
+        frequency: 'daily',
+        interval: 1,
+        weekdays: [],
+        startDate: today,
+        effectiveDate: today,
+        executionTime: '19:00',
+        archived: false,
+      },
+    ],
+  });
   return home;
 }
 
@@ -422,6 +524,8 @@ const api = {
   createHome,
   rowsForDate,
   taskVersion,
+  compareTaskOrder,
+  overdueAt,
   ruleLabel,
   transition,
   createDemo,

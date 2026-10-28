@@ -59,7 +59,7 @@ function fixture() {
     },
   };
 }
-async function setup(f) {
+async function setup(f, extra = {}) {
   await f.service.call('owner', 'createHome', { name: '妈妈' });
   await f.service.call('owner', 'saveBaby', { name: '大宝' });
   const h = (await f.service.call('owner', 'snapshot')).home;
@@ -69,7 +69,8 @@ async function setup(f) {
     assigneeId: h.ownerId,
     frequency: 'daily',
     startDate: '2026-10-28',
-    reminderTime: '09:00',
+    executionTime: '09:00',
+    ...extra,
   });
   return (await f.service.call('owner', 'snapshot')).home;
 }
@@ -185,4 +186,71 @@ test('成员不能把任意云文件ID作为宝宝头像越权读取', async () 
     /头像文件/
   );
   assert.equal((await f.service.call('owner', 'snapshot')).home.babies.length, 1);
+});
+
+test('执行时间可选；未设置时再晚也不自动通知', async () => {
+  const f = fixture();
+  await setup(f, { executionTime: '' });
+  await f.service.call('owner', 'subscribe', { accepted: true, templateId: 'template' });
+  f.setTime('2026-10-28T15:50:00.000Z');
+  await f.service.tick();
+  assert.equal(f.sends(), 0);
+});
+
+test('超过执行时间30分钟才通知，29分钟不通知，30分钟后只通知一次', async () => {
+  const f = fixture();
+  await setup(f, { executionTime: '10:00' });
+  await f.service.call('owner', 'subscribe', { accepted: true, templateId: 'template' });
+  f.setTime('2026-10-28T02:29:00.000Z');
+  await f.service.tick();
+  assert.equal(f.sends(), 0);
+  f.setTime('2026-10-28T02:30:00.000Z');
+  await f.service.tick();
+  await f.service.tick();
+  assert.equal(f.sends(), 1);
+});
+
+test('23点50分安排的任务在次日0点20分仍能触发通知', async () => {
+  const f = fixture();
+  await setup(f, { executionTime: '23:50' });
+  await f.service.call('owner', 'subscribe', { accepted: true, templateId: 'template' });
+  f.setTime('2026-10-28T16:19:00.000Z');
+  await f.service.tick();
+  assert.equal(f.sends(), 0);
+  f.setTime('2026-10-28T16:20:00.000Z');
+  await f.service.tick();
+  assert.equal(f.sends(), 1);
+});
+
+test('被通知人与执行人分开选择，消息发送给所选被通知人', async () => {
+  const f = fixture();
+  const h = await setup(f);
+  const invite = await f.service.call('owner', 'makeInvite');
+  await f.service.call('dad', 'applyInvite', { token: invite.token, name: '爸爸' });
+  const dadId = hash('dad').slice(0, 32);
+  await f.service.call('owner', 'reviewInvite', { requestId: dadId, approve: true });
+  await f.service.call('owner', 'complete', {
+    taskId: h.tasks[0].id,
+    date: '2026-10-28',
+    done: true,
+    expectedRevision: 0,
+  });
+  await f.service.call('owner', 'saveTask', {
+    scope: 'family',
+    title: '家里的事',
+    babyIds: [],
+    assigneeId: dadId,
+    notifyMemberId: h.ownerId,
+    frequency: 'daily',
+    startDate: '2026-10-28',
+    executionTime: '09:00',
+  });
+  await f.service.call('owner', 'subscribe', { accepted: true, templateId: 'template' });
+  await f.service.tick();
+  const result = await f.service.call('owner', 'snapshot');
+  assert.equal(
+    result.messages.find((m) => m.type === 'auto' && m.status === 'sent').recipientId,
+    h.ownerId
+  );
+  assert.equal(f.sends(), 1);
 });

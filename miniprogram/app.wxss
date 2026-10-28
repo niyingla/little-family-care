@@ -51,6 +51,28 @@ input {
 .heading {
   margin: 20rpx 0 36rpx;
 }
+.scope-tabs {
+  display: flex;
+  gap: 12rpx;
+  background: #f0e9dd;
+  padding: 9rpx;
+  border-radius: 26rpx;
+  margin-bottom: 26rpx;
+}
+.scope-tab {
+  flex: 1;
+  text-align: center;
+  color: #a18b73;
+  font-size: 28rpx;
+  padding: 17rpx 10rpx;
+  border-radius: 20rpx;
+}
+.scope-tab.active {
+  background: #fffdf7;
+  color: #788969;
+  box-shadow: 0 3rpx 12rpx #8772500a;
+  font-weight: 600;
+}
 .eyebrow,
 .small-label {
   font-size: 18rpx;
@@ -293,6 +315,33 @@ input {
 .task-body {
   flex: 1;
   min-width: 0;
+}
+.task-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10rpx;
+}
+.task-title-row .task-title {
+  flex: 1;
+}
+.pin-button {
+  flex-shrink: 0;
+  background: transparent;
+  padding: 10rpx 0 4rpx 8rpx;
+  color: #b3a28c;
+  font-size: 20rpx;
+}
+.pin-button.is-pinned {
+  color: #ad835d;
+}
+.pin-badge {
+  font-size: 18rpx;
+  color: #ac8058;
+  background: #f4e7d4;
+  border-radius: 7rpx;
+  padding: 3rpx 8rpx;
+  margin-right: 10rpx;
+  vertical-align: middle;
 }
 .task-title {
   font-size: 31rpx;

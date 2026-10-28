@@ -14,17 +14,20 @@ module.exports = {
   renderRows() {
     if (!this._snapshot) return;
     const { home, day, date, actorId, messages } = this._snapshot;
-    let rows = d.rowsForDate(home, day, date);
-    if (this.data.selectedBaby !== 'all')
+    let rows = d
+      .rowsForDate(home, day, date)
+      .filter((r) => r.scope === (this.data.scope || 'baby'));
+    if (this.data.scope !== 'family' && this.data.selectedBaby !== 'all')
       rows = rows.filter((r) => r.babyId === this.data.selectedBaby);
     const total = rows.length,
       doneCount = rows.filter((r) => r.done).length;
+    const visibleTaskIds = rows.map((r) => r.id);
     rows = rows.filter(
       (r) => this.data.filter === 'all' || (this.data.filter === 'done' ? r.done : !r.done)
     );
     rows = rows.map((r) => ({
       ...r,
-      initial: r.babyName.slice(0, 1),
+      initial: r.subjectName.slice(0, 1),
       time: timeLabel(r.completedAt),
       mine: r.assigneeId === actorId,
       picture: (this.data.babies.find((b) => b.id === r.babyId) || {}).picture || '',
@@ -32,13 +35,16 @@ module.exports = {
     const taskList = home.tasks
       .map((task) => {
         const v = d.taskVersion(task, d.addDays(this.data.today, 1));
-        const baby = home.babies.find((b) => b.id === task.babyId);
+        const scope = task.scope || 'baby';
+        const baby = scope === 'baby' && home.babies.find((b) => b.id === task.babyId);
         const member = home.members.find((m) => m.id === v.assigneeId && m.active);
         return {
           ...v,
           id: task.id,
+          scope,
+          pinned: !!task.pinned,
           babyId: task.babyId,
-          babyName: baby && baby.name,
+          subjectName: scope === 'family' ? '全家' : baby && baby.name,
           assigneeName: member ? member.name : '待重新分配',
           ruleLabel: d.ruleLabel(v),
           scheduled: v.effectiveDate > this.data.today,
@@ -46,20 +52,22 @@ module.exports = {
       })
       .filter(
         (t) =>
-          !t.archived && (this.data.selectedBaby === 'all' || t.babyId === this.data.selectedBaby)
-      );
-    const events = ((day && day.events) || [])
-      .filter(
-        (e) =>
-          rows.some((r) => r.id === e.taskId) ||
-          (this.data.filter === 'all' && this.data.selectedBaby === 'all')
+          !t.archived &&
+          t.scope === (this.data.scope || 'baby') &&
+          (t.scope === 'family' ||
+            this.data.selectedBaby === 'all' ||
+            t.babyId === this.data.selectedBaby)
       )
+      .sort(d.compareTaskOrder);
+    const events = ((day && day.events) || [])
+      .filter((e) => visibleTaskIds.includes(e.taskId))
       .slice()
       .reverse()
       .map((e) => ({
         ...e,
+        subjectName: e.subjectName || e.babyName || '全家',
         time: timeLabel(e.at),
-        label: e.type === 'complete' ? '完成了' : e.type === 'undo' ? '撤销了勾选' : '提醒了执行人',
+        label: e.type === 'complete' ? '完成了' : e.type === 'undo' ? '撤销了勾选' : '发起了提醒',
       }));
     this.setData({
       rows,
@@ -68,13 +76,15 @@ module.exports = {
       progress: total ? Math.round((doneCount / total) * 100) : 0,
       events,
       taskList,
-      messages: messages.map((m) => ({
-        ...m,
-        label: STATUS[m.status] || '发送结果待确认',
-        title: (
-          home.tasks.find((t) => t.id === m.taskId) || { versions: [{ title: '任务提醒' }] }
-        ).versions.slice(-1)[0].title,
-      })),
+      messages: messages
+        .filter((m) => visibleTaskIds.includes(m.taskId))
+        .map((m) => ({
+          ...m,
+          label: STATUS[m.status] || '发送结果待确认',
+          title: (
+            home.tasks.find((t) => t.id === m.taskId) || { versions: [{ title: '任务提醒' }] }
+          ).versions.slice(-1)[0].title,
+        })),
     });
   },
 
@@ -82,6 +92,11 @@ module.exports = {
     const view = e.currentTarget.dataset.id;
     this.setData({ view, filter: 'all', date: this.data.today });
     this.refresh();
+  },
+  switchScope(e) {
+    // 两大事项块使用各自的统计与流水，切换时清除宝宝和完成状态筛选。
+    this.setData({ scope: e.currentTarget.dataset.id, selectedBaby: 'all', filter: 'all' });
+    this.renderRows();
   },
   selectBaby(e) {
     this.setData({ selectedBaby: e.currentTarget.dataset.id });
@@ -109,7 +124,7 @@ module.exports = {
     if (row.done) {
       const confirm = await wx.showModal({
         title: '撤销这次打勾？',
-        content: `${row.babyName} · ${row.title}`,
+        content: `${row.subjectName} · ${row.title}`,
       });
       if (!confirm.confirm) return;
     }

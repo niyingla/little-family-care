@@ -3,7 +3,7 @@
 <import src="templates/family.wxml" />
 <import src="templates/forms.wxml" />
 <view class="page">
-  <view wx:if="{{!ready}}" class="loading">正在打开小小日常…</view>
+  <view wx:if="{{!ready}}" class="loading">正在打开我家日常小事簿…</view>
   <block wx:elif="{{gate}}">
     <view class="welcome-art">
       <view class="sun">☀</view>
@@ -12,7 +12,7 @@
       <view class="spark s2">✧</view>
     </view>
     <view class="eyebrow">LITTLE MOMENTS, TOGETHER</view>
-    <view class="welcome-title">小小日常</view>
+    <view class="welcome-title">我家日常小事簿</view>
     <view class="welcome-sub">
       <view>把照顾宝宝的小事，</view>
       <view>一起记在心上。</view>
@@ -56,7 +56,7 @@
           复制我自己的 OpenID，供管理员初始化
         </button>
       </block>
-      <view wx:else class="notice">尚未连接你的微信云开发环境。可以先体验界面与任务功能。</view>
+      <view wx:else class="notice">家庭共享服务尚未准备好，可以先体验界面与任务功能。</view>
       <button class="soft" bindtap="startDemo">先体验一下</button>
     </view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
@@ -71,7 +71,7 @@
       <view>
         <view class="eyebrow">OUR LITTLE FAMILY</view>
         <view class="brand">
-          小小日常
+          我家日常小事簿
           <text class="brand-flower">✿</text>
         </view>
       </view>
@@ -81,7 +81,25 @@
       {{error}}
       <text bindtap="refresh">点击重试</text>
     </view>
-    <scroll-view wx:if="{{view !== 'family'}}" scroll-x class="baby-scroll">
+    <view wx:if="{{view !== 'family'}}" class="scope-tabs">
+      <view
+        class="scope-tab {{scope === 'baby' ? 'active' : ''}}"
+        data-id="baby"
+        bindtap="switchScope"
+      >
+        <text>✿</text>
+        宝宝事项
+      </view>
+      <view
+        class="scope-tab {{scope === 'family' ? 'active' : ''}}"
+        data-id="family"
+        bindtap="switchScope"
+      >
+        <text>⌂</text>
+        家庭事项
+      </view>
+    </view>
+    <scroll-view wx:if="{{view !== 'family' && scope === 'baby'}}" scroll-x class="baby-scroll">
       <view class="baby-pills">
         <view
           class="baby-pill {{selectedBaby === 'all' ? 'selected' : ''}}"
@@ -112,9 +130,9 @@
     <template
       wx:if="{{view === 'today' || view === 'history'}}"
       is="timeline"
-      data="{{view,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages}}"
+      data="{{view,scope,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages}}"
     />
-    <template wx:if="{{view === 'tasks'}}" is="tasks" data="{{taskList,busy}}" />
+    <template wx:if="{{view === 'tasks'}}" is="tasks" data="{{scope,taskList,busy}}" />
     <template
       wx:if="{{view === 'family'}}"
       is="family"
@@ -137,6 +155,6 @@
   <template
     wx:if="{{modal}}"
     is="forms"
-    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,busy,inviteToken}}"
+    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,notifyOptions,notifyIndex,busy,inviteToken}}"
   />
 </view>

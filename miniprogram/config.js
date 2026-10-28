@@ -5,4 +5,4 @@ try {
 } catch (_) {
   /* 未配置时只开放本地体验。 */
 }
-module.exports = { envId: '', templateId: '', ...local };
+module.exports = { envId: '', templateId: '', apiBaseUrl: '', ...local };
