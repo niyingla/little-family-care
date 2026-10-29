@@ -50,6 +50,7 @@ Page(
       owner: false,
       busy: false,
       refreshing: false,
+      timelinePending: false,
       error: '',
       sharedTaskId: '',
       sharedTaskNotice: '',
@@ -258,9 +259,24 @@ Page(
      * @param {object} target 内部定位目标，可选view/date及事项筛选，仅在刷新成功后应用。
      * @returns {Promise<boolean>} 仅完成快照更新时为true；失败或正忙时为false。
      */
-    async refresh(quiet = false, target = {}) {
+    refresh(quiet = false, target = {}) {
       // 正忙时不启动竞争请求，调用方也不能据此认为目标已经加载。
-      if (this.data.refreshing || this.data.busy) return false;
+      if (this.data.refreshing || this.data.busy) return Promise.resolve(false);
+      // 标签可等待并复用这一个在途请求，不能通过反复点击启动多个完整快照下载。
+      const pending = this.loadSnapshot(quiet, target).finally(() => {
+        if (this._refreshPromise === pending) this._refreshPromise = null;
+      });
+      this._refreshPromise = pending;
+      return pending;
+    },
+    /**
+     * 获取并提交同一导航上下文的家庭快照，迟到响应不能覆写新的标签。
+     * @param {boolean} quiet 后台同步为true，不反复弹出网络错误。
+     * @param {object} target 日期或分享定位目标，仅成功且导航仍有效时提交。
+     * @returns {Promise<boolean>} 本次响应已应用时为true，失败或导航已变化时为false。
+     */
+    async loadSnapshot(quiet, target) {
+      const generation = this._navigationVersion || 0;
       this.setData({ refreshing: true });
       try {
         const today = d.chinaDate(new Date());
@@ -269,14 +285,18 @@ Page(
         const view = target.view || this.data.view;
         const date = view === 'history' ? target.date || this.data.date : today;
         const snapshot = await api.call('snapshot', { date });
+        // 请求期间允许切标签，旧请求即使成功也不能恢复旧日期、视图或清单。
+        if (generation !== (this._navigationVersion || 0)) return false;
         // 请求成功后同时提交日期、筛选与快照；失败保留此前可用页面。
         this._snapshot = snapshot;
+        this._snapshotLoadedAt = Date.now();
         this.setData({
           ...target,
           gate: false,
           error: '',
           today,
           date,
+          timelinePending: false,
           // 成员和头像均使用同一份已授权快照，不混用请求前的家庭资料。
           owner: snapshot.home.ownerId === snapshot.actorId,
           babies: snapshot.home.babies.map((b) => ({
@@ -317,12 +337,18 @@ Page(
       } catch (error) {
         // 保留错误供界面重试；普通连接失败不丢弃已有授权快照。
         if (this.handleReviewSessionError(error)) return false;
+        // 普通旧请求失败不覆盖新页面；权限失效必须继续处理，不能以导航变化掩盖。
+        if (generation !== (this._navigationVersion || 0) && !/无权/.test(error.message))
+          return false;
         this.setData({ error: error.message });
         // 被移除后立即清空已显示的家庭资料，不退回本地体验绕过权限。
         if (/无权/.test(error.message)) {
+          this._navigationVersion = (this._navigationVersion || 0) + 1;
+          this.cancelWallCovers();
           this._snapshot = null;
           this.setData({
             gate: true,
+            timelinePending: false,
             babies: [],
             members: [],
             rows: [],

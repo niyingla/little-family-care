@@ -3,6 +3,8 @@ const d = require('../../../utils/domain');
 const { completionMessage } = require('../../../utils/task-feedback');
 const timeLabel = (iso) => (iso ? d.chinaTime(iso) : '');
 const HISTORY_SWIPE = { distance: 60, maxDuration: 1000, axisRatio: 1.5 };
+// 与前台轮询周期一致，标签切换复用刚确认过的快照，不为每次点击重复下载头像。
+const SNAPSHOT_FRESH_MS = 20000;
 const STATUS = {
   queued: '等待发送',
   sending: '正在处理，结果待确认',
@@ -20,6 +22,8 @@ module.exports = {
   renderRows() {
     // 未完成初始化或已失去访问权限时，不从残留页面状态拼装家庭资料。
     if (!this._snapshot) return;
+    // 新日期尚未加载时，切换筛选也不能把旧日期记录重新填进空白加载区。
+    if (this.data.timelinePending && ['today', 'history'].includes(this.data.view)) return;
     // 任务与执行记录必须来自同一日期，不能用今天的完成情况替代历史。
     const { home, day, date, actorId, messages } = this._snapshot;
     let rows = d
@@ -138,16 +142,54 @@ module.exports = {
   },
 
   /**
-   * 切换主页面并回到当前日期。
+   * 立即切换主页面，已有授权数据先展示，过期快照在后台更新。
    * @param {object} e 标签事件，dataset.id为today/history/tasks/family。
-   * @returns {Promise<void>} 新视图和日期只在目标快照加载成功后一起生效。
+   * @returns {Promise<boolean>} 当前切换仍有效时为true，后台同步不阻塞标签显示。
    */
   async switchTab(e) {
-    // 日期请求或业务提交中保持原上下文，旧返回不能把今天页覆盖成昨天记录。
-    if (this.data.refreshing || this.data.busy) return;
+    // 业务提交仍保护原上下文；普通后台读取不再阻止导航点击。
+    if (this.data.busy || this.data.gate) return false;
     const view = e.currentTarget.dataset.id;
-    // 标签切换也延后提交目标，网络失败保留此前日期和记录，不能只更新标题。
-    await this.refresh(false, { view, filter: 'all', date: this.data.today });
+    if (!['today', 'history', 'tasks', 'family'].includes(view)) return false;
+    if (view === this.data.view) return true;
+    // 每次真实导航撤销旧日期请求的回写资格，连续点击只服从最后一次选择。
+    const generation = (this._navigationVersion || 0) + 1;
+    this._navigationVersion = generation;
+    const today = d.chinaDate(new Date());
+    const timelinePending =
+      ['today', 'history'].includes(view) && (!this._snapshot || this._snapshot.date !== today);
+    this.setData({ view, today, date: today, filter: 'all', timelinePending });
+    if (timelinePending) {
+      // 日期标题可先切换，但必须撤下旧记录和统计，不能把昨日完成状态贴成今天。
+      this.setData({
+        rows: [],
+        events: [],
+        messages: [],
+        birthdayMessages: [],
+        total: 0,
+        doneCount: 0,
+        progress: 0,
+      });
+    } else this.renderRows();
+    // 只保留一个已有请求和最新导航意图，不为快速切页堆积网络请求。
+    return this.syncTabSnapshot(generation);
+  },
+  /**
+   * 复用在途请求，按最后一次标签选择补充必要的快照。
+   * @param {number} generation 本次真实导航序号，旧序号不得再发起补读。
+   * @returns {Promise<boolean>} 页面仍有效且拥有所需快照时为true；失败保留重试提示。
+   */
+  async syncTabSnapshot(generation) {
+    // 旧请求结束前不启动第二个快照，头像下载与轮询不会因连续点击成倍增加。
+    if (this._refreshPromise) await this._refreshPromise;
+    if (generation !== this._navigationVersion || this.data.gate || this.data.busy) return false;
+    // 当前日期已加载且仍在同步周期内，无需为切页重复获取同一份家庭数据。
+    if (
+      !this.data.timelinePending &&
+      Date.now() - (this._snapshotLoadedAt || 0) < SNAPSHOT_FRESH_MS
+    )
+      return true;
+    return this.refresh(true);
   },
   /**
    * 切换宝宝或家庭事项范围。

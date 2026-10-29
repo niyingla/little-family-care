@@ -88,7 +88,9 @@ module.exports = {
    */
   async navigateTab(event) {
     // 上传或发布尚未结束时不切换数据上下文，避免把照片归到另一位宝宝。
-    if (this.data.busy || this.data.refreshing) return;
+    if (this.data.busy || this.data.gate) return;
+    // 重复点当前标签不重新清空列表、重读网络或重启首图队列。
+    if (event.currentTarget.dataset.id === this.data.view) return;
     if (event.currentTarget.dataset.id === 'photos') await this.openPhotoWall();
     // 原页面的日期、事项筛选与行为埋点仍通过原switchTab执行。
     else {
@@ -101,6 +103,8 @@ module.exports = {
    * @returns {Promise<void>} 加载当前页文字与首图，不扩大到所有历史照片。
    */
   async openPhotoWall() {
+    // 照片墙也属于一次真实导航，旧事项/历史请求不能在返回时把页面切回去。
+    this._navigationVersion = (this._navigationVersion || 0) + 1;
     // 重入标签也使旧筛选请求失效，不能让旧页结果覆盖新的“全部照片”范围。
     this.cancelWallCovers();
     // 宝宝选项来自当前授权家庭快照，不读取家人设备相册或外部家庭资料。
@@ -117,6 +121,7 @@ module.exports = {
     // 失效的宝宝不能沿用旧草稿；有效草稿在切换标签时保留，避免丢失输入。
     this.setData({
       view: 'photos',
+      timelinePending: false,
       wallBabyOptions: options,
       wallComposerBabies: targets,
       // 每次重开从全家庭的最新动态开始，浏览筛选与待发布草稿彼此独立。

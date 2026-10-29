@@ -24,19 +24,19 @@ function page() {
   };
 }
 
-test('切日请求中切标签不覆写日期，标签切换失败保留原日期和视图', async () => {
+test('标签先切换，目标日期加载失败时不展示旧日记录，提交中仍不跳页', async () => {
   const p = page();
   p.data.date = '2026-10-27';
-  p.data.refreshing = true;
-  await p.switchTab({ currentTarget: { dataset: { id: 'today' } } });
-  assert.equal(p.data.view, 'history');
-  assert.equal(p.data.date, '2026-10-27');
-  assert.equal(p.targets.length, 0);
-  p.data.refreshing = false;
+  p.data.rows = [{ id: 'old', done: true }];
   p.refresh = async () => false;
   await p.switchTab({ currentTarget: { dataset: { id: 'today' } } });
-  assert.equal(p.data.view, 'history');
-  assert.equal(p.data.date, '2026-10-27');
+  assert.equal(p.data.view, 'today');
+  assert.equal(p.data.timelinePending, true);
+  assert.deepEqual(p.data.rows, []);
+  assert.equal(p.data.doneCount, 0);
+  p.data.busy = true;
+  await p.switchTab({ currentTarget: { dataset: { id: 'family' } } });
+  assert.equal(p.data.view, 'today');
 });
 
 test('家庭创建当天可翻前一天，向右恢复今天，跨月年闰日正确且未来与非法步长拒绝', async () => {

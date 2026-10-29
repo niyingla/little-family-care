@@ -153,10 +153,13 @@
       </view>
     </scroll-view>
     <template
-      wx:if="{{view === 'today' || view === 'history'}}"
+      wx:if="{{(view === 'today' || view === 'history') && !timelinePending}}"
       is="timeline"
       data="{{view,scope,date,today,createdDate,rows,total,doneCount,progress,filter,events,busy,messages,demo,sharedTaskId,sharedTaskNotice}}"
     />
+    <view wx:if="{{(view === 'today' || view === 'history') && timelinePending}}" class="loading">
+      {{refreshing ? '正在读取这一天的记录…' : '这一天的记录尚未加载，请下拉重试。'}}
+    </view>
     <template wx:if="{{view === 'tasks'}}" is="tasks" data="{{scope,taskList,busy}}" />
     <template
       wx:if="{{view === 'photos'}}"

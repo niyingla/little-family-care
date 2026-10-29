@@ -118,8 +118,10 @@ function instrumentPage(definition) {
       const before = this.data.view;
       const value = definition[name].apply(this, args);
       if (name === 'switchTab') {
+        // 使用已授权快照时标签立即可见，访问记录不必等待后台网络和头像下载。
+        if (this.data.view !== before) recordSwitchedView(this, before);
         // 异步切页先等待真实刷新成功，不能在Promise返回瞬间记录旧视图。
-        if (value && typeof value.then === 'function')
+        else if (value && typeof value.then === 'function')
           void value.then((resolved) => recordSwitchedView(this, before, resolved)).catch(() => {});
         // 同步方法仍同步记访问，保持原有直接返回值而不强制包装Promise。
         else recordSwitchedView(this, before, value);

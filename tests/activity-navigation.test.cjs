@@ -49,6 +49,30 @@ test('异步切页失败或未改变view不误记新页面，原拒绝对象和�
   }
 });
 
+test('标签已立即切换时先记访问，不等后台同步，也不在旧Promise结束后重复记新页', async () => {
+  let finish;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const events = [];
+  const page = instrumentPage({
+    data: { view: 'today', gate: false },
+    recordActivity(event) {
+      events.push(event);
+    },
+    switchTab() {
+      this.data.view = 'family';
+      return pending;
+    },
+  });
+  assert.equal(page.switchTab(), pending);
+  assert.deepEqual(events.at(-1), { kind: 'page_view', view: 'family' });
+  page.data.view = 'tasks';
+  finish(true);
+  await pending;
+  assert.equal(events.filter((event) => event.kind === 'page_view').length, 1);
+});
+
 test('同步切页仍同步返回原值并记录切换后的页面，不额外包装成Promise', () => {
   const events = [];
   const page = instrumentPage({
