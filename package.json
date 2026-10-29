@@ -5,7 +5,7 @@
   "scripts": {
     "prepare": "node scripts/prepare.cjs",
     "pretest": "node scripts/prepare.cjs",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test --test-concurrency=4 tests/*.test.cjs",
     "check": "node scripts/check.cjs",
     "check:native": "node scripts/check-native.cjs",
     "preview": "node scripts/preview.cjs",

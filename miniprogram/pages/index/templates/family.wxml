@@ -13,13 +13,17 @@
       <image
         wx:if="{{item.picture}}"
         class="profile-avatar"
+        data-kind="baby"
+        data-id="{{item.id}}"
+        bindtap="previewFamilyAvatar"
         src="{{item.picture}}"
         mode="aspectFill"
       />
       <view wx:else class="profile-avatar default-avatar">{{item.initial}}</view>
       <view class="baby-name">{{item.name}}</view>
+      <view wx:if="{{item.birthDate}}" class="muted footnote">{{item.birthDate}} 出生</view>
       <button wx:if="{{owner}}" class="baby-edit" data-id="{{item.id}}" bindtap="openBaby">
-        修改名字和头像
+        编辑宝宝资料
       </button>
     </view>
   </view>
@@ -35,6 +39,9 @@
       <image
         wx:if="{{item.picture}}"
         class="member-avatar"
+        data-kind="member"
+        data-id="{{item.id}}"
+        bindtap="previewFamilyAvatar"
         src="{{item.picture}}"
         mode="aspectFill"
         style="flex-shrink: 0"
@@ -49,7 +56,7 @@
         </view>
         <view wx:else class="muted footnote">生日未填写</view>
         <button
-          wx:if="{{item.canEditAvatar}}"
+          wx:if="{{item.canEditAvatar && !item.isSelf}}"
           class="text-button"
           size="mini"
           data-id="{{item.id}}"
@@ -59,7 +66,7 @@
           修改头像
         </button>
         <button
-          wx:if="{{item.canEditBirthday}}"
+          wx:if="{{item.canEditBirthday && !item.isSelf}}"
           class="text-button"
           size="mini"
           data-id="{{item.id}}"
@@ -85,8 +92,11 @@
     </view>
   </view>
   <view class="card">
-    <view class="section-title">家人怎么称呼你</view>
-    <view class="inline-field">
+    <button class="text-button" bindtap="toggleProfileEditor" disabled="{{busy}}">
+      {{profileEditorOpen ? '收起我的资料 ⌃' : '编辑我的资料 ⌄'}}
+    </button>
+    <view wx:if="{{profileEditorOpen}}" class="form-label">家人怎么称呼你</view>
+    <view wx:if="{{profileEditorOpen}}" class="inline-field">
       <input
         class="field"
         value="{{profileName}}"
@@ -95,6 +105,24 @@
         bindinput="input"
       />
       <button class="text-button" bindtap="saveProfile" disabled="{{busy}}">保存</button>
+    </view>
+    <view wx:if="{{profileEditorOpen}}">
+      <button
+        class="text-button"
+        data-id="{{profileMemberId}}"
+        bindtap="chooseMemberAvatar"
+        disabled="{{busy || demo}}"
+      >
+        修改我的头像
+      </button>
+      <button
+        class="text-button"
+        data-id="{{profileMemberId}}"
+        bindtap="openBirthday"
+        disabled="{{busy}}"
+      >
+        编辑我的生日
+      </button>
     </view>
   </view>
   <view class="card reminder-card">

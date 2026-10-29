@@ -64,7 +64,9 @@ function clearIdentityPage(page, reviewMode) {
     // 隐藏编辑器里的宝宝、任务及生日同样是私有资料，不能带入另一模式提交。
     modal: '',
     form: emptyTask(),
-    babyForm: { name: '', avatar: '' },
+    babyForm: { name: '', avatar: '', birthDate: '' },
+    profileEditorOpen: false,
+    profileMemberId: '',
     birthdayForm: {},
     // 生日推导出的日期选项可能来自旧家人资料，重开编辑器时重新计算。
     birthdayMessages: [],

@@ -116,6 +116,9 @@
           <image
             wx:if="{{item.picture}}"
             class="tiny-avatar"
+            data-kind="baby"
+            data-id="{{item.babyId}}"
+            catchtap="previewFamilyAvatar"
             src="{{item.picture}}"
             mode="aspectFill"
           />

@@ -141,6 +141,9 @@
           <image
             wx:if="{{item.picture}}"
             class="mini-avatar"
+            data-kind="baby"
+            data-id="{{item.id}}"
+            catchtap="previewFamilyAvatar"
             src="{{item.picture}}"
             mode="aspectFill"
           />
@@ -163,7 +166,7 @@
     <template
       wx:if="{{view === 'family'}}"
       is="family"
-      data="{{babies,members,owner,requests,profileName,configured,subscribed,demo,busy,birthdayMessages}}"
+      data="{{babies,members,owner,requests,profileName,profileMemberId,profileEditorOpen,configured,subscribed,demo,busy,birthdayMessages}}"
     />
     <view class="footer-note">一起照顾，也记得照顾自己 ♡</view>
     <view class="bottom-nav">
@@ -182,6 +185,6 @@
   <template
     wx:if="{{modal}}"
     is="forms"
-    data="{{modal,form,babyForm,week,frequencies,taskBabies,taskMembers,memberIndex,notifyOptions,notifyIndex,busy,inviteToken,inviteForm,birthdayForm,birthdayMonths,birthdayDays}}"
+    data="{{modal,form,babyForm,today,week,frequencies,taskBabies,taskMembers,memberIndex,notifyOptions,notifyIndex,busy,inviteToken,inviteForm,birthdayForm,birthdayMonths,birthdayDays}}"
   />
 </view>

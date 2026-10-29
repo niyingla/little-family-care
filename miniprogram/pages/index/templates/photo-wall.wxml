@@ -98,6 +98,7 @@
       <view class="section-title">
         {{post.authorName}}
         <text class="baby-tag">{{post.scope === 'family' ? '家庭日常' : post.babyName}}</text>
+        <text wx:if="{{post.ageLabel}}" class="muted footnote">· {{post.ageLabel}}</text>
       </view>
       <button
         wx:if="{{post.canDelete}}"

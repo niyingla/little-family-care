@@ -168,7 +168,30 @@
             data-field="babyForm.name"
             bindinput="input"
           />
-          <view class="notice">名字和头像仅对已加入的家庭成员可见。支持10MB以内JPG或PNG图片。</view>
+          <view class="form-label">出生日期（选填）</view>
+          <picker
+            mode="date"
+            value="{{babyForm.birthDate}}"
+            end="{{today}}"
+            bindchange="changeBabyBirthDate"
+            disabled="{{busy}}"
+          >
+            <view class="field picker-value">
+              {{babyForm.birthDate || '选择出生日期'}}
+              <text>⌄</text>
+            </view>
+          </picker>
+          <button
+            wx:if="{{babyForm.birthDate}}"
+            class="text-button"
+            bindtap="clearBabyBirthDate"
+            disabled="{{busy}}"
+          >
+            清空出生日期
+          </button>
+          <view class="notice">
+            出生日期用于显示照片当天的月龄，仅家人可见。头像支持10MB以内JPG或PNG图片。
+          </view>
           <button class="primary" bindtap="saveBaby" disabled="{{busy}}" loading="{{busy}}">
             保存宝宝资料
           </button>

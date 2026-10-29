@@ -55,7 +55,7 @@ async function createRuntime(env = process.env) {
   if (mysql) {
     // 压缩减少平台环境变量占用，不是加密；真实证书仍只在私有环境中传递。
     const options = decodeDatabaseConfig(env.MYSQL_CONFIG_BASE64);
-    repo = await createMySQLRepository(options);
+    repo = await createMySQLRepository({ ...options, layout: env.DATABASE_LAYOUT || 'legacy' });
   } else repo = createSQLiteRepository(path.join(dataDir, 'family.sqlite'));
   // 只返回已完成连接验证的仓库，调用方无需自行选择或重建存储驱动。
   return { repo, config };

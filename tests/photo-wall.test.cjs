@@ -293,6 +293,30 @@ async function publish(f, openid = 'dad', babyId = 'baby-a', text = '记下今�
   return f.wall.publishPhotoPost(openid, { babyId, text, photoIds: [uploaded.photoId] });
 }
 
+test('宝宝动态按发布日期显示月龄，家庭动态和未填生日不显示', async () => {
+  const f = fixture();
+  const home = await f.repo.get('care_home', 'home');
+  home.babies[0].birthDate = '2026-08-20';
+  await f.repo.put('care_home', 'home', home);
+  await publish(f);
+  const first = await f.wall.listPhotoPosts('owner', {});
+  assert.equal(first.posts[0].ageLabel, '2个月8天');
+  await publish(f, 'dad', 'baby-b');
+  assert.equal((await f.wall.listPhotoPosts('owner', {})).posts[0].ageLabel, '');
+  const uploaded = await f.wall.uploadWallPhoto('dad', {
+    scope: 'family',
+    babyId: '',
+    base64: png,
+  });
+  await f.wall.publishPhotoPost('dad', {
+    scope: 'family',
+    babyId: '',
+    text: '全家',
+    photoIds: [uploaded.photoId],
+  });
+  assert.equal((await f.wall.listPhotoPosts('owner', {})).posts[0].ageLabel, '');
+});
+
 test('有效家人可上传发布，未加入和已移除者拒绝，未发布文件不签发短链', async () => {
   const f = fixture();
   await assert.rejects(

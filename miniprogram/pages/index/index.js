@@ -55,7 +55,7 @@ Page(
       sharedTaskNotice: '',
       modal: '',
       form: EMPTY_TASK(),
-      babyForm: { name: '', avatar: '' },
+      babyForm: { name: '', avatar: '', birthDate: '' },
       token: '',
       joinName: '',
       joinRelation: '',
@@ -79,6 +79,8 @@ Page(
       wallDraft: { babyId: '', text: '', photos: [] },
       wallUploading: false,
       profileName: '',
+      profileMemberId: '',
+      profileEditorOpen: false,
       inviteToken: '',
       frequencies: [
         { id: 'once', label: '仅一次' },
@@ -294,6 +296,7 @@ Page(
               picture: m.avatarUrl || (this.data.demo ? m.avatar || '' : ''),
               initial: m.name.slice(0, 1),
               isOwner: m.id === snapshot.home.ownerId,
+              isSelf: m.id === snapshot.actorId,
               canEditAvatar:
                 snapshot.home.ownerId === snapshot.actorId || m.id === snapshot.actorId,
               canEditBirthday:
@@ -301,6 +304,7 @@ Page(
             })),
           requests: snapshot.requests,
           profileName: snapshot.home.members.find((m) => m.id === snapshot.actorId).name,
+          profileMemberId: snapshot.actorId,
           configured: snapshot.configured,
           // 本地授权状态只用于提示，实际微信可发送额度仍由后端发送结果决定。
           subscribed: snapshot.subscribed,

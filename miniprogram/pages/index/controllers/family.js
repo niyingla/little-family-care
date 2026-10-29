@@ -3,6 +3,51 @@ const api = require('../../../utils/client');
 const { MAX_IMAGE_BYTES } = require('../../../utils/media-policy');
 module.exports = {
   /**
+   * 预览当前家庭快照里的头像，默认头像没有真实图片时不弹窗。
+   * @param {object} event 点击目标的kind（baby/member）及id，不接受任意图片地址。
+   * @returns {Promise<void>} 打开微信原生大图预览；失败提示重新刷新。
+   */
+  async previewFamilyAvatar(event) {
+    // 从当前可见资料取已授权展示路径，不能把dataset中的任意URL当资源。
+    const { kind, id } = event.currentTarget.dataset;
+    const source = kind === 'baby' ? this.data.babies : kind === 'member' ? this.data.members : [];
+    const target = source.find((item) => item.id === id);
+    if (!target || !target.picture) return;
+    try {
+      // 原生预览可缩放、保存和返回，不会触发修改头像或打开相册。
+      await wx.previewImage({ current: target.picture, urls: [target.picture] });
+    } catch (_) {
+      // 临时授权地址失效时不切换到公开地址，也不泄露底层存储信息。
+      wx.showToast({ title: '头像暂时打不开，请刷新后重试', icon: 'none' });
+    }
+  },
+  /**
+   * 展开或收起本人称呼编辑区，保留尚未保存的输入。
+   * @returns {void} 忙碌时保持原状态，避免提交过程中控件消失。
+   */
+  toggleProfileEditor() {
+    // 编辑状态只在当前页面存在，不作为持久权限或自动保存信号。
+    if (this.data.busy) return;
+    this.setData({ profileEditorOpen: !this.data.profileEditorOpen });
+  },
+  /**
+   * 读取日期选择器主动选中的公历出生日期。
+   * @param {object} event 微信日期picker返回的YYYY-MM-DD或空字符串。
+   * @returns {void} 只更新表单，实际合法性与管理员权限仍由服务器校验。
+   */
+  changeBabyBirthDate(event) {
+    // 取消系统选择器不会触发此事件，留空须由单独清除按钮明确操作。
+    this.setData({ 'babyForm.birthDate': event.detail.value });
+  },
+  /**
+   * 明确清空待保存的出生日期，不立即改共享档案。
+   * @returns {void} 忙碌时忽略操作，否则清空表单日期。
+   */
+  clearBabyBirthDate() {
+    // 与保存共用忙碌态，防止上传过程中清掉用户已提交的字段。
+    if (!this.data.busy) this.setData({ 'babyForm.birthDate': '' });
+  },
+  /**
    * 从已授权家庭快照确认头像编辑目标，不根据昵称或家庭称呼推断权限。
    * @param {string} memberId 点击行携带的目标成员ID，必须仍为有效家庭成员。
    * @returns {object|null} 请求人为本人或真实管理员时返回目标成员，否则返回null。
@@ -90,8 +135,14 @@ module.exports = {
       modal: 'baby',
       // 编辑保留头像资源标识与展示路径；新建不继承上次弹窗的临时图片。
       babyForm: baby
-        ? { babyId: id, name: baby.name, avatar: baby.avatar, picture: baby.picture }
-        : { name: '', avatar: '', picture: '' },
+        ? {
+            babyId: id,
+            name: baby.name,
+            avatar: baby.avatar,
+            picture: baby.picture,
+            birthDate: baby.birthDate || '',
+          }
+        : { name: '', avatar: '', picture: '', birthDate: '' },
     });
   },
   /**
@@ -161,7 +212,9 @@ module.exports = {
     if (response.confirm) await this.run('removeMember', { memberId: e.currentTarget.dataset.id });
   },
   async saveProfile() {
-    await this.run('profile', { name: this.data.profileName });
+    // 失败保留输入与展开状态；只有服务器确认保存后才收起。
+    if (await this.run('profile', { name: this.data.profileName }))
+      this.setData({ profileEditorOpen: false });
   },
   async createFamily() {
     if (await this.run('createHome', { name: this.data.joinName })) await this.boot();

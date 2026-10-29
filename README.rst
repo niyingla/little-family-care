@@ -55,7 +55,11 @@
 
 根目录Dockerfile用于微信云托管，监听3000端口。运行环境注入 ``DATABASE_DRIVER=mysql``、``MYSQL_CONFIG_BASE64`` 以及现有微信配置，关闭容器内扫描 ``REMINDER_ENABLED=false``。MySQL配置包含专用账号、口令、``host``、``serverName``、``database`` 和双向TLS的 ``ca/cert/key``；JSON可先gzip压缩再base64编码，以适配平台环境变量5KB限制，同时兼容旧版原始JSON的base64格式。压缩和编码都不提供加密，配置仍属服务端秘密，不得写入Dockerfile、代码包或日志。数据库证书必须验证受信任CA和服务端主机名，服务端应用账号须强制验证客户端证书；不开通腾讯MySQL承载家庭数据。
 
-业务库须事先创建 ``care_records(collection VARCHAR(64), id VARCHAR(128), body LONGTEXT, PRIMARY KEY(collection,id))`` 和 ``care_mutex(id TINYINT PRIMARY KEY)``，均使用InnoDB，字符集utf8mb4、排序规则utf8mb4_bin，并向互斥表插入唯一行 ``id=1``。应用账号只授予业务库SELECT、INSERT、UPDATE权限。多个应用副本和提醒进程通过互斥行共享事务边界；不能删掉互斥行或关闭TLS校验来解决连接错误。
+当前MySQL布局为 ``DATABASE_LAYOUT=relational``，家庭、用户、成员、宝宝、任务版本、执行流水、照片等分成29张独立业务表，不使用JSON业务列。生日、执行星期及上传目标/结果也使用独立列或关联表；图片原字节保存到 ``care_image_blobs.image_bytes``。表结构与中文数据字典维护在 ``selfhost/relational/``；部署位置和迁移步骤见 ``docs/部署说明.md``。
+
+现有旧库使用 ``scripts/migrate-storage.cjs`` 分步执行只读检查、建表、备份迁移和激活。旧 ``care_records`` 仅保留核对与回滚用途，启用后应用停写旧表；``care_mutex`` 的唯一行 ``id=1`` 必须保留。迁移与回滚均须真正暂停所有应用和提醒写入，``--writers-paused`` 只是操作者确认。切换后如需回滚，先把新表最新数据回同步，不能直接回旧代码。
+
+应用账号按新业务表授予SELECT、INSERT、UPDATE，并为14张聚合子表授予DELETE，不授予DDL或数据库管理权限；启动时以恒假条件验证删除权限。所有表使用InnoDB与utf8mb4_bin，副本与提醒进程共享事务锁。全新空库应先在legacy布局完成家庭初始化再迁移；工具拒绝空旧库，避免误连造成数据丢失。不能关闭TLS校验来解决连接错误。
 
 配置 ``deploy/little-family-care-reminder.service`` 与 ``.timer``，每5分钟运行独立扫描；环境文件权限600。云托管休眠不影响阿里云定时器。头像按512KiB分段下载到小程序私有沙盒，适配云托管1000KiB响应限制。基础库应使用2.23.0及以上版本，小程序用 ``cloudRunEnvId``、``cloudRunService`` 配置通过 ``wx.cloud.callContainer`` 访问，不要求自有后端域名；正式小程序备案和审核仍须完成。
 

@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 const net = require('node:net');
+const { createRelationalRepository } = require('./relational/repository.cjs');
 
 /**
  * 生成跨云连接配置，拒绝明文连接及共享管理账号。
@@ -97,6 +98,24 @@ function documentAccess(connection) {
 }
 
 /**
+ * 防止分表激活后遗漏配置的旧布局实例继续启动并写入过时快照。
+ * @param {object} connection 当前业务连接池或迁移测试连接。
+ * @returns {Promise<void>} 尚未建迁移表或仍处于legacy/ready时允许启动。
+ * @throws {Error} 分表已激活、状态损坏或数据库权限不足时拒绝启动。
+ */
+async function assertLegacyLayout(connection) {
+  try {
+    // 旧部署可能完全没有状态表，仅此明确情况视为仍在初始布局。
+    const [rows] = await connection.execute('SELECT layout FROM care_storage_state WHERE id=1');
+    if (!rows.length || !['legacy', 'ready'].includes(rows[0].layout))
+      throw new Error('数据库布局已切换，请使用分表配置启动');
+  } catch (error) {
+    // 连接、权限或其他SQL错误必须继续上报，不能冒充尚未迁移而跳过保护。
+    if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
+  }
+}
+
+/**
  * 创建阿里云持久仓库，事务锁保证多个云托管副本更新家庭数据时不丢失变更。
  * @param {object} config 专用业务库连接配置，表结构由部署脚本提前初始化。
  * @returns {Promise<object>} get/put/list/transaction及close接口。
@@ -109,6 +128,10 @@ async function createMySQLRepository(config) {
     // 启动时确认真实业务库已初始化；不在应用请求中自动建库或升级结构。
     const [locks] = await pool.execute('SELECT id FROM care_mutex WHERE id=1');
     if (locks.length !== 1) throw new Error('数据库事务锁尚未初始化');
+    // 旧环境默认维持原布局；切换必须显式指定并由分表迁移状态再次验证。
+    if (config.layout === 'relational') return await createRelationalRepository(pool);
+    if (config.layout && config.layout !== 'legacy') throw new Error('数据库布局配置不正确');
+    await assertLegacyLayout(pool);
   } catch (error) {
     // 启动探针失败时关闭整个池，避免未就绪进程继续占用数据库连接。
     await pool.end();
@@ -176,4 +199,4 @@ async function createMySQLRepository(config) {
     close: () => pool.end(),
   };
 }
-module.exports = { mysqlOptions, createMySQLRepository };
+module.exports = { mysqlOptions, createMySQLRepository, assertLegacyLayout };

@@ -21,6 +21,32 @@ const addDays = (date, count) =>
 const weekday = (date) => new Date(dateNumber(date)).getUTCDay() || 7;
 
 /**
+ * 按照片所属日历日计算宝宝周岁、月龄和余天，月底按当月最后一天对齐。
+ * @param {string} birthDate 可空的公历出生日期，格式YYYY-MM-DD。
+ * @param {string} date 照片的北京时间日期，不得早于出生日期。
+ * @returns {string} 当天年龄文案；日期缺失、不合法或尚未出生时为空。
+ */
+function babyAgeLabel(birthDate, date) {
+  // 不猜测缺失生日，也不为出生前的历史照片显示负年龄。
+  if (!validDate(birthDate) || !validDate(date) || date < birthDate) return '';
+  const [year, month, day] = birthDate.split('-').map(Number);
+  const [targetYear, targetMonth] = date.split('-').map(Number);
+  let months = (targetYear - year) * 12 + targetMonth - month;
+  const anniversary = (count) => {
+    // 31日出生遇到小月，以及闰日周年，均取目标月最后一个有效日期。
+    const first = new Date(Date.UTC(year, month - 1 + count, 1));
+    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
+    first.setUTCDate(Math.min(day, last.getUTCDate()));
+    return first.toISOString().slice(0, 10);
+  };
+  // 未到本月对应日时，只计已满的月份，余天从最近满月日计算。
+  if (anniversary(months) > date) months -= 1;
+  const days = Math.round((dateNumber(date) - dateNumber(anniversary(months))) / DAY);
+  if (!months) return days ? `出生${days}天` : '出生当天';
+  return `${Math.floor(months / 12) ? `${Math.floor(months / 12)}岁` : ''}${months % 12 ? `${months % 12}个月` : ''}${days ? `${days}天` : ''}`;
+}
+
+/**
  * 判断固定日历周期；打勾时间不会改变下一次执行日期。
  * @param {object} rule 任务版本中的周期，星期取1至7。
  * @param {string} date 北京时间日历日期，格式YYYY-MM-DD。
@@ -473,18 +499,27 @@ function transition(originalHome, originalDay, actorId, action, data, now, makeI
     // 有ID的编辑不得退化为新建，数量上限只约束新增宝宝。
     if (data.babyId) ensure(baby, '宝宝不存在');
     ensure(baby || home.babies.length < 10, '最多可添加10位宝宝');
+    // 老客户端未传生日时保留原资料；空字符串明确清空，不能录入未来或无效日期。
+    if (data.birthDate !== undefined)
+      ensure(
+        typeof data.birthDate === 'string' &&
+          (!data.birthDate || (validDate(data.birthDate) && data.birthDate <= today)),
+        '出生日期请选择今天或之前的有效日期'
+      );
     // 头像地址必须通过服务端上传入口验证；本地体验才使用本地图片路径。
     if (baby)
       Object.assign(baby, {
         name: text(data.name, 12),
         // 未提交头像字段沿用旧值，显式空字符串才表示用户主动清空。
         avatar: data.avatar === undefined ? baby.avatar : data.avatar,
+        ...(data.birthDate === undefined ? {} : { birthDate: data.birthDate }),
       });
     else
       home.babies.push({
         id: makeId(),
         name: text(data.name, 12),
         avatar: data.avatar || '',
+        birthDate: data.birthDate || '',
         color: home.babies.length % 2 ? 'sage' : 'peach',
       });
     result = { message: '宝宝资料已保存' };
@@ -620,6 +655,7 @@ const api = {
   chinaDate,
   chinaTime,
   validDate,
+  babyAgeLabel,
   addDays,
   weekday,
   isDue,

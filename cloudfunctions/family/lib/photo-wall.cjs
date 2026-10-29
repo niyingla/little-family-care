@@ -346,6 +346,14 @@ function createPhotoWall(repo, { readMember, hash, randomId, now, avatars, photo
         scope,
         babyId: post.babyId,
         babyName: post.babyName,
+        // 月龄绑定照片记录日期；补填生日可补全旧照片，浏览当天不参与计算。
+        ageLabel:
+          scope === 'baby'
+            ? d.babyAgeLabel(
+                (home.babies.find((baby) => baby.id === post.babyId) || {}).birthDate,
+                post.date || d.chinaDate(post.createdAt)
+              )
+            : '',
         authorId: post.authorId,
         authorName: post.authorName,
         text: post.text,
